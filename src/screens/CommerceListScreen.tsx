@@ -1,4 +1,4 @@
-// src/screens/CommerceSelectionScreen.tsx
+// src/screens/CommerceListScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -13,18 +13,18 @@ import { useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
 import { Commerce } from '../types/data';
-import { getCommerces, saveCommerces } from '../utils/storage';
+import { getCommerces } from '../utils/storage'; // No necesitamos saveCommerces aquí
 
-type CommerceSelectionScreenNavigationProp = StackNavigationProp<
+type CommerceListScreenNavigationProp = StackNavigationProp<
   AppStackParamList,
-  'CommerceSelection'
+  'CommerceList'
 >;
 
-interface CommerceSelectionScreenProps {
-  navigation: CommerceSelectionScreenNavigationProp;
+interface CommerceListScreenProps {
+  navigation: CommerceListScreenNavigationProp;
 }
 
-const CommerceSelectionScreen: React.FC<CommerceSelectionScreenProps> = ({ navigation }) => {
+const CommerceListScreen: React.FC<CommerceListScreenProps> = ({ navigation }) => {
   const [commerces, setCommerces] = useState<Commerce[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -79,7 +79,7 @@ const CommerceSelectionScreen: React.FC<CommerceSelectionScreenProps> = ({ navig
 
   return (
     <View style={styles.container}>
-      <Text style={styles.headerTitle}>Seleccionar Comercio</Text>
+      <Text style={styles.headerTitle}>Lista de Comercios</Text>
       {commerces.length === 0 ? (
         <View style={styles.emptyListContainer}>
           <Text style={styles.emptyListText}>No hay comercios registrados aún.</Text>
@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontStyle: 'italic',
   },
-  commercePhone: { // Nuevo estilo para el teléfono
+  commercePhone: {
     fontSize: 14,
     color: '#444',
     marginTop: 5,
@@ -203,4 +203,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CommerceSelectionScreen;
+export default CommerceListScreen;

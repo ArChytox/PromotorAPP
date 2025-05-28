@@ -15,7 +15,7 @@ import {
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { AppStackParamList } from '../navigation/AppNavigator';
-import { ProductVisitEntry, Commerce, CompetitorProduct, CompetitorVisitEntry } from '../types/data'; // Importamos nuevos tipos
+import { ProductVisitEntry, Commerce, CompetitorProduct, CompetitorVisitEntry } from '../types/data';
 import { getCommerces } from '../utils/storage';
 import { Picker } from '@react-native-picker/picker';
 import 'react-native-get-random-values';
@@ -122,9 +122,6 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
   }, [commerceId]);
 
   const handleGoBack = () => {
-    // Al volver, si se quiere que los datos temporales se mantengan, se deberían pasar
-    // de vuelta como parámetros a VisitScreen, o usar un contexto global.
-    // Por ahora, simplemente volvemos. Si el usuario vuelve y luego regresa, perderá los datos de competencia actuales.
     Alert.alert(
       "Advertencia",
       "Si regresas ahora, los datos de competencia que hayas ingresado se perderán. ¿Deseas continuar?",
@@ -195,29 +192,12 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
   };
 
   const handleFinalizeVisit = () => {
-    if (collectedCompetitorEntries.length === 0) {
-      Alert.alert('Atención', 'Debes añadir al menos un producto de la competencia o confirmar que no hay competidores a registrar.');
-      // Opcional: Permitir continuar sin competidores si es válido para el negocio.
-      // Para este flujo, vamos a requerir al menos uno o confirmar la ausencia.
-    }
-
-    // Aquí navegarías a la última pantalla donde se guarda toda la visita.
-    // Por ahora, simplemente mostramos un Alert. En el próximo paso, crearemos esa pantalla.
-    Alert.alert(
-      'Visita Lista para Guardar',
-      'Aquí se presentaría el resumen final y el botón para GUARDAR la visita completa.\n\nDatos de Visita Chispa: ' +
-        productEntries.length +
-        ' productos.\nDatos de Competencia: ' +
-        collectedCompetitorEntries.length +
-        ' productos.'
-    );
-
-    // En un escenario real, navegarías a una pantalla de resumen o a la función de guardado
-    // navigation.navigate('FinalSummaryScreen', {
-    //   commerceId: commerceId,
-    //   productEntries: productEntries,
-    //   competitorEntries: collectedCompetitorEntries,
-    // });
+    // Navegar a la pantalla de fotos y ubicación, pasando TODOS los datos recopilados
+    navigation.navigate('PhotoAndLocation', {
+      commerceId: commerceId,
+      productEntries: productEntries, // Datos de Chispa
+      competitorEntries: collectedCompetitorEntries, // Datos de Competencia
+    });
   };
 
   const renderProductEntryItem = ({ item }: { item: ProductVisitEntry }) => (
@@ -340,7 +320,7 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
           style={styles.finalizeButton}
           onPress={handleFinalizeVisit}
         >
-          <Text style={styles.finalizeButtonText}>Finalizar Visita y Guardar </Text>
+          <Text style={styles.finalizeButtonText}>Continuar Tomar Foto </Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>

@@ -24,8 +24,7 @@ export interface ProductVisitEntry {
   generalStock: number; // Stock general/inventario
 }
 
-// --- NUEVOS TIPOS PARA COMPETENCIA ---
-
+// --- TIPOS PARA COMPETENCIA ---
 // Definición para un Producto de la Competencia
 export interface CompetitorProduct {
   id: string;
@@ -38,7 +37,16 @@ export interface CompetitorVisitEntry {
   productName: string; // Nombre del producto de la competencia
   price: number; // Precio registrado para el competidor
 }
+// --- FIN TIPOS COMPETENCIA ---
 
+
+// --- NUEVOS TIPOS PARA FOTOS Y UBICACIÓN ---
+export interface LocationData {
+  latitude: number;
+  longitude: number;
+  timestamp: string; // ISO string de la fecha y hora de la captura
+  cityName?: string;
+}
 // --- FIN NUEVOS TIPOS ---
 
 
@@ -46,9 +54,11 @@ export interface CompetitorVisitEntry {
 export interface Visit {
   id: string; // ID único de la visita
   commerceId: string; // ID del comercio visitado
-  timestamp: string; // Fecha y hora de la visita (ISO string)
+  timestamp: string; // Fecha y hora de la visita (ISO string de inicio de visita)
   productEntries: ProductVisitEntry[]; // Array de productos Chispa registrados en esta visita
-  competitorEntries: CompetitorVisitEntry[]; // <--- NUEVO: Array de productos de la competencia
-  // Puedes añadir más campos a la visita si es necesario (ej: observaciones, promotorId, etc.)
+  competitorEntries: CompetitorVisitEntry[]; // Array de productos de la competencia
+  photoBeforeUri?: string; // URI de la foto antes (opcional por si no se toma)
+  photoAfterUri?: string;  // URI de la foto después (opcional por si no se toma)
+  location?: LocationData; // Datos de ubicación (opcional por si falla la captura)
   promoterId?: string; // Por si quieres asociar el promotor
 }
