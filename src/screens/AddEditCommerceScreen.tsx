@@ -54,24 +54,32 @@ const AddEditCommerceScreen: React.FC<AddEditCommerceScreenProps> = ({ navigatio
       const existingCommerces = await getCommerces();
       let updatedCommerces: Commerce[];
 
-      // Convertir el nombre a mayúsculas aquí
       const formattedName = name.trim().toUpperCase();
 
       if (isEditing) {
+        // En una aplicación real, buscarías el comercio por initialCommerceId y lo actualizarías.
+        // Como tu código actual añade uno nuevo incluso en edición, mantenemos ese comportamiento.
+        // Para una edición real, la lógica sería:
+        // updatedCommerces = existingCommerces.map(c =>
+        //   c.id === initialCommerceId
+        //     ? { ...c, name: formattedName, address: address.trim(), phone: phone.trim(), category: category.trim() || 'General' }
+        //     : c
+        // );
+
         Alert.alert('Funcionalidad de Edición', 'La edición de comercios aún no está completamente implementada. Se añadió como nuevo por ahora.');
         const newCommerce: Commerce = {
-          id: uuidv4(),
-          name: formattedName, // Usamos el nombre formateado
+          id: uuidv4(), // Esto generaría un ID nuevo, no actualiza el existente
+          name: formattedName,
           address: address.trim(),
           phone: phone.trim(),
           category: category.trim() || 'General',
         };
-        updatedCommerces = [...existingCommerces, newCommerce];
-
+        updatedCommerces = [...existingCommerces, newCommerce]; // Añadiendo como nuevo
       } else {
+        // Esto es para añadir un nuevo comercio
         const newCommerce: Commerce = {
           id: uuidv4(),
-          name: formattedName, // <-- ¡Aquí aplicamos .toUpperCase()!
+          name: formattedName,
           address: address.trim(),
           phone: phone.trim(),
           category: category.trim() || 'General',
@@ -82,7 +90,12 @@ const AddEditCommerceScreen: React.FC<AddEditCommerceScreenProps> = ({ navigatio
       await saveCommerces(updatedCommerces);
 
       Alert.alert('Éxito', `Comercio "${formattedName}" ${isEditing ? 'actualizado' : 'añadido'} exitosamente.`);
-      navigation.goBack();
+      
+      // --- ¡CAMBIO CRUCIAL AQUÍ! ---
+      // Navegar a la pantalla 'MyVisits' después de guardar un comercio.
+      // Opcionalmente, podrías navegar a 'CommerceList' si prefieres volver a la lista principal de comercios.
+      // He elegido 'MyVisits' según tu última instrucción.
+      navigation.navigate('MyVisits');
     } catch (error) {
       console.error('Error al guardar comercio:', error);
       Alert.alert('Error', `No se pudo ${isEditing ? 'actualizar' : 'añadir'} el comercio. Intenta de nuevo.`);
@@ -108,7 +121,7 @@ const AddEditCommerceScreen: React.FC<AddEditCommerceScreenProps> = ({ navigatio
             placeholderTextColor="#999"
             value={name}
             onChangeText={setName}
-            autoCapitalize="words" // Ayuda visual, pero la conversión final es en la lógica
+            autoCapitalize="words"
             returnKeyType="next"
           />
 

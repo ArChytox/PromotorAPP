@@ -54,6 +54,11 @@ const CommerceListScreen: React.FC<CommerceListScreenProps> = ({ navigation }) =
     navigation.navigate('AddEditCommerce', undefined);
   };
 
+  // NUEVA FUNCIÓN para navegar a Mis Visitas
+  const handleGoToMyVisits = () => {
+    navigation.navigate('MyVisits');
+  };
+
   const handleSelectCommerce = (commerce: Commerce) => {
     // Al seleccionar un comercio, ahora navegamos a la pantalla de visita
     navigation.navigate('Visit', { commerceId: commerce.id });
@@ -94,9 +99,16 @@ const CommerceListScreen: React.FC<CommerceListScreenProps> = ({ navigation }) =
         />
       )}
 
-      <TouchableOpacity style={styles.addButton} onPress={handleAddCommerce}>
-        <Text style={styles.addButtonText}>+ Añadir Nuevo Comercio</Text>
-      </TouchableOpacity>
+      {/* Contenedor para los botones de añadir y ver visitas */}
+      <View style={styles.buttonContainer}> 
+        <TouchableOpacity style={styles.addButton} onPress={handleAddCommerce}>
+          <Text style={styles.addButtonText}>+ Añadir Nuevo Comercio</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.myVisitsButton} onPress={handleGoToMyVisits}>
+          <Text style={styles.myVisitsButtonText}>Mis Visitas</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -119,7 +131,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 80,
+    paddingBottom: 80, // Ajusta para el espacio de los botones
   },
   emptyListText: {
     fontSize: 18,
@@ -133,7 +145,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   listContent: {
-    paddingBottom: 80,
+    paddingBottom: 150, // Aumenta el padding para dar espacio a los dos botones fijos
   },
   commerceItem: {
     backgroundColor: '#fff',
@@ -167,29 +179,6 @@ const styles = StyleSheet.create({
     color: '#444',
     marginTop: 5,
   },
-  addButton: {
-    backgroundColor: '#007bff',
-    paddingVertical: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    marginBottom: 10,
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 6,
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -200,6 +189,52 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: '#555',
+  },
+  // Contenedor para ambos botones en la parte inferior
+  buttonContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    flexDirection: 'column', // Apilarlos verticalmente
+    gap: 10, // Espacio entre los botones
+  },
+  addButton: {
+    backgroundColor: '#007bff',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 6,
+    width: '100%', // Que ocupe todo el ancho disponible en el contenedor
+  },
+  addButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  // NUEVOS ESTILOS para el botón "Mis Visitas"
+  myVisitsButton: {
+    backgroundColor: '#6c757d', // Un color gris para distinguirlo
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 6,
+    width: '100%',
+  },
+  myVisitsButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
 

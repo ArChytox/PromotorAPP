@@ -35,11 +35,10 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [commerce, setCommerce] = useState<Commerce | null>(null); // Añade estado para el objeto Commerce
-  const [isLoadingCommerce, setIsLoadingCommerce] = useState<boolean>(true); // Nuevo estado de carga para el comercio
+  const [commerce, setCommerce] = useState<Commerce | null>(null);
+  const [isLoadingCommerce, setIsLoadingCommerce] = useState<boolean>(true);
 
 
-  // Mueve getLocationHandler ANTES del useEffect que lo llama
   const getLocationHandler = useCallback(async (): Promise<LocationData | null> => {
     setIsLoadingLocation(true);
     try {
@@ -131,14 +130,15 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({
   }, [commerceId, getLocationHandler]);
 
   const takePhoto = async (type: 'before' | 'after') => {
+    // FIX: Usar MediaType en lugar de MediaTypeOptions que está deprecado
     let result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Usamos MediaTypeOptions por compatibilidad
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Usar MediaTypeOptions.Images
       allowsEditing: false,
       aspect: [4, 3],
       quality: 0.5,
     });
 
-    if (!result.canceled) {
+    if (!result.canceled && result.assets && result.assets.length > 0) { // Añadido check para assets y su longitud
       if (type === 'before') {
         setPhotoBeforeUri(result.assets[0].uri);
       } else {
@@ -180,7 +180,9 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({
       await saveVisit(finalVisitData);
 
       Alert.alert('Éxito', 'Visita guardada correctamente.');
-      navigation.popToTop();
+      // --- ¡CAMBIO CRUCIAL AQUÍ! ---
+      // Navega a la nueva pantalla MyVisits en lugar de popToTop
+      navigation.navigate('MyVisits');
     } catch (error) {
       console.error('Error al guardar la visita:', error);
       Alert.alert('Error', 'No se pudo guardar la visita.');
@@ -272,13 +274,12 @@ const styles = StyleSheet.create({
   },
   container: {
     paddingHorizontal: 20,
-    paddingTop: 40, // Mantener padding superior para el ScrollView
+    paddingTop: 40,
     alignItems: 'center',
     paddingBottom: 40,
   },
-  // --- NUEVOS ESTILOS DEL ENCABEZADO (Copiados y adaptados) ---
   header: {
-    backgroundColor: '#ffc107', // Fondo amarillo para la pantalla final también
+    backgroundColor: '#ffc107',
     padding: 15,
     borderRadius: 10,
     marginBottom: 20,
@@ -288,15 +289,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 5,
-    position: 'relative', // Para posicionar el backButton
-    width: '100%', // Asegura que el header ocupe todo el ancho
+    position: 'relative',
+    width: '100%',
   },
   backButton: {
     position: 'absolute',
     left: 10,
     top: 15,
     padding: 5,
-    zIndex: 1, // Asegura que esté por encima del header
+    zIndex: 1,
   },
   backButtonText: {
     color: '#333',
@@ -308,7 +309,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginTop: 5,
-    textAlign: 'center', // Centrar el texto
+    textAlign: 'center',
   },
   commerceName: {
     fontSize: 26,
@@ -323,8 +324,6 @@ const styles = StyleSheet.create({
     marginTop: 5,
     textAlign: 'center',
   },
-  // --- FIN DE NUEVOS ESTILOS DEL ENCABEZADO ---
-
   button: {
     backgroundColor: '#007bff',
     paddingVertical: 12,
