@@ -1,182 +1,253 @@
 // src/screens/VisitScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ScrollView,
+  FlatList,
   TextInput,
-  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
-  FlatList, // Para mostrar las presentaciones añadidas
 } from 'react-native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RouteProp } from '@react-navigation/native';
+import { StackScreenProps } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
-import { ProductVisitEntry, ChispaPresentation, Commerce } from '../types/data'; // Usamos ChispaPresentation
-import { getCommerces } from '../utils/storage'; // Ya no necesitamos saveVisits aquí
+import { ProductVisitEntry, Commerce, ChispaPresentation } from '../types/data'; // Asegúrate de importar ProductVisitEntry
+import { getCommerces } from '../utils/storage';
 import { Picker } from '@react-native-picker/picker';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
+import { useVisit } from '../context/VisitContext';
 
-// Definir las 5 presentaciones "Chispas"
+// Lista de presentaciones Chispa (Generados con IDs únicos)
 const CHISPA_PRESENTATIONS: ChispaPresentation[] = [
-  { id: 'pres_001', name: 'GRAN MARQUES PREMIUM 1KG' },
-  { id: 'pres_002', name: 'DON JULIAN TIPO 1 1KG' },
-  { id: 'pres_003', name: 'GRAN MARQUES GOURMET 900G' },
-  { id: 'pres_004', name: 'GRAN MARQUES SELECTO 850G' },
-  { id: 'pres_005', name: 'DON JULIAN TIPO 2 1KG' },
+  { id: uuidv4(), name: 'GRAN MARQUES PREMIUM 1KG' },
+  { id: uuidv4(), name: 'DON JULIAN TIPO 1 1KG' },
+  { id: uuidv4(), name: 'GRAN MARQUES GOURMET 900G' },
+  { id: uuidv4(), name: 'GRAN MARQUES SELECTO 850G' },
+  { id: uuidv4(), name: 'DON JULIAN TIPO 2 1kG' },
+  { id: uuidv4(), name: 'SIN STOCK' }, // Esta es la entrada "SIN STOCK"
 ];
 
-type VisitScreenNavigationProp = StackNavigationProp<AppStackParamList, 'Visit'>;
-type VisitScreenRouteProp = RouteProp<AppStackParamList, 'Visit'>;
+type VisitScreenProps = StackScreenProps<AppStackParamList, 'Visit'>;
 
-interface VisitScreenProps {
-  navigation: VisitScreenNavigationProp;
-  route: VisitScreenRouteProp;
-}
-
-const VisitScreen: React.FC<VisitScreenProps> = ({ navigation, route }) => {
-  const { commerceId } = route.params;
+const VisitScreen: React.FC<VisitScreenProps> = ({ navigation }) => {
+  const {
+    currentCommerceId,
+    productEntries: initialProductEntries,
+    updateProductEntries,
+    markSectionComplete,
+    resetVisit,
+  } = useVisit();
 
   const [commerce, setCommerce] = useState<Commerce | null>(null);
-  const [selectedPresentationId, setSelectedPresentationId] = useState<string | null>(null);
-  const [price, setPrice] = useState<string>('');
+  const [isLoadingCommerce, setIsLoadingCommerce] = useState<boolean>(true);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [productPrice, setProductPrice] = useState<string>('');
+  // Nuevo estado para la moneda
+  const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'VES'>('USD'); // Valor por defecto: Dólar
   const [shelfStock, setShelfStock] = useState<string>('');
   const [generalStock, setGeneralStock] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [collectedProductEntries, setCollectedProductEntries] = useState<ProductVisitEntry[]>([]); // Estado para acumular presentaciones
+  const [collectedProductEntries, setCollectedProductEntries] = useState<ProductVisitEntry[]>(initialProductEntries);
 
+  // NUEVO ESTADO: Para controlar si "SIN STOCK" está seleccionado
+  const [isSinStockSelected, setIsSinStockSelected] = useState<boolean>(false);
+
+  useEffect(() => {
+    setCollectedProductEntries(initialProductEntries);
+  }, [initialProductEntries]);
+
+  // Cargar detalles del comercio al montar la pantalla o cambiar currentCommerceId
   useEffect(() => {
     const fetchCommerceDetails = async () => {
       try {
-        if (!commerceId) {
-          Alert.alert('Error', 'ID de comercio no proporcionado.');
-          navigation.goBack();
+        if (!currentCommerceId) {
+          console.warn('ID de comercio no proporcionado a VisitScreen desde el contexto. Redirigiendo.');
+          Alert.alert('Error de Sesión', 'No se pudo determinar el comercio actual. Por favor, reinicia la visita.', [
+            { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+          ]);
           return;
         }
         const storedCommerces = await getCommerces();
-        const foundCommerce = storedCommerces.find(c => c.id === commerceId);
+        const foundCommerce = storedCommerces.find(c => c.id === currentCommerceId);
         if (foundCommerce) {
           setCommerce(foundCommerce);
         } else {
-          Alert.alert('Error', 'Comercio no encontrado.');
-          navigation.goBack();
+          console.warn('Comercio no encontrado en VisitScreen para ID:', currentCommerceId);
+          Alert.alert('Error de Sesión', 'El comercio no se encontró. Por favor, selecciona un comercio nuevamente.', [
+            { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+          ]);
         }
       } catch (error) {
-        console.error('Error al cargar detalles del comercio:', error);
-        Alert.alert('Error', 'No se pudieron cargar los detalles del comercio.');
-        navigation.goBack();
+        console.error('Error al cargar detalles del comercio en VisitScreen:', error);
+        Alert.alert('Error', 'Hubo un problema al cargar los detalles del comercio.', [
+          { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+        ]);
       } finally {
-        setIsLoading(false);
+        setIsLoadingCommerce(false);
       }
     };
 
     fetchCommerceDetails();
-  }, [commerceId, navigation]);
+  }, [currentCommerceId, navigation, resetVisit]);
 
-  const handleAddPresentationEntry = () => {
-    if (!selectedPresentationId) {
-      Alert.alert('Error', 'Por favor, selecciona una presentación.');
+  // Función para el botón "< Volver" en la esquina superior
+  const handleBackToVisitItems = useCallback(() => {
+    updateProductEntries(collectedProductEntries); // Guarda temporalmente
+    if (currentCommerceId) {
+      navigation.navigate('VisitItems', { commerceId: currentCommerceId });
+    } else {
+      Alert.alert('Error de Sesión', 'El comercio actual no está definido. Por favor, reinicia la visita.', [
+        { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+      ]);
+    }
+  }, [navigation, currentCommerceId, collectedProductEntries, updateProductEntries, resetVisit]);
+
+  // Función para el nuevo botón "Ir a Items de Visita" (parte inferior)
+  const handleGoToVisitItems = useCallback(() => {
+    updateProductEntries(collectedProductEntries); // Guarda temporalmente
+    if (currentCommerceId) {
+      navigation.navigate('VisitItems', { commerceId: currentCommerceId });
+    } else {
+      Alert.alert('Error de Sesión', 'El comercio actual no está definido. Por favor, reinicia la visita.', [
+        { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+      ]);
+    }
+  }, [navigation, currentCommerceId, collectedProductEntries, updateProductEntries, resetVisit]);
+
+  const handleAddProductEntry = () => {
+    if (!selectedProductId) {
+      Alert.alert('Error', 'Por favor, selecciona una presentación Chispa.');
       return;
     }
-    if (!price.trim() || !shelfStock.trim() || !generalStock.trim()) {
-      Alert.alert('Error', 'Por favor, completa todos los campos de datos de la presentación.');
+
+    const selectedProduct = CHISPA_PRESENTATIONS.find(
+      (p) => p.id === selectedProductId
+    );
+
+    if (!selectedProduct) {
+      Alert.alert('Error interno', 'Presentación Chispa seleccionada no válida.');
       return;
     }
 
-    // Convertir a números
-    const parsedPrice = parseFloat(price.replace(',', '.'));
-    const parsedShelfStock = parseInt(shelfStock, 10);
-    const parsedGeneralStock = parseInt(generalStock, 10);
+    let parsedPrice: number | null = null;
+    let parsedShelfStock: number | null = null;
+    let parsedGeneralStock: number | null = null;
 
-    if (isNaN(parsedPrice) || isNaN(parsedShelfStock) || isNaN(parsedGeneralStock)) {
-      Alert.alert('Error', 'Por favor, ingresa valores numéricos válidos en Precio, Stock Anaqueles y Stock General.');
-      return;
-    }
-    if (parsedPrice < 0 || parsedShelfStock < 0 || parsedGeneralStock < 0) {
-      Alert.alert('Error', 'Los valores de Precio y Stock no pueden ser negativos.');
-      return;
-    }
+    // LÓGICA DE VALIDACIÓN: Excepción para "SIN STOCK"
+    if (selectedProduct.name === 'SIN STOCK') {
+      // Si es "SIN STOCK", los campos de precio y stock se guardan como null
+      parsedPrice = null;
+      parsedShelfStock = null;
+      parsedGeneralStock = null;
+    } else {
+      // Para cualquier otra presentación, aplicamos la validación normal
+      if (!productPrice.trim() || !shelfStock.trim() || !generalStock.trim()) {
+        Alert.alert('Error', 'Por favor, completa todos los campos (precio, stock anaqueles, stock general).');
+        return;
+      }
 
-    const selectedPresentation = CHISPA_PRESENTATIONS.find(p => p.id === selectedPresentationId);
-    if (!selectedPresentation) {
-      Alert.alert('Error interno', 'Presentación seleccionada no válida.');
-      return;
+      parsedPrice = parseFloat(productPrice.replace(',', '.'));
+      parsedShelfStock = parseInt(shelfStock, 10);
+      parsedGeneralStock = parseInt(generalStock, 10);
+
+      if (isNaN(parsedPrice) || parsedPrice < 0 ||
+        isNaN(parsedShelfStock) || parsedShelfStock < 0 ||
+        isNaN(parsedGeneralStock) || parsedGeneralStock < 0) {
+        Alert.alert('Error', 'Por favor, ingresa valores numéricos válidos y no negativos para precio y stocks.');
+        return;
+      }
     }
 
     const newEntry: ProductVisitEntry = {
-      productId: selectedPresentationId,
-      productName: selectedPresentation.name,
-      price: parsedPrice,
-      shelfStock: parsedShelfStock,
-      generalStock: parsedGeneralStock,
+      productId: selectedProductId,
+      productName: selectedProduct.name,
+      price: parsedPrice, // Puede ser null si es SIN STOCK
+      currency: selectedCurrency, // ¡Añadimos la moneda aquí!
+      shelfStock: parsedShelfStock, // Puede ser null si es SIN STOCK
+      generalStock: parsedGeneralStock, // Puede ser null si es SIN STOCK
     };
 
-    // Verificar si la presentación ya fue añadida para evitar duplicados y actualizar
     const existingEntryIndex = collectedProductEntries.findIndex(
       (entry) => entry.productId === newEntry.productId
     );
 
+    let updatedEntries: ProductVisitEntry[];
     if (existingEntryIndex > -1) {
-      // Actualizar la entrada existente
-      const updatedEntries = [...collectedProductEntries];
+      updatedEntries = [...collectedProductEntries];
       updatedEntries[existingEntryIndex] = newEntry;
-      setCollectedProductEntries(updatedEntries);
-      Alert.alert('Actualizado', `La presentación "${newEntry.productName}" ha sido actualizada.`);
+      Alert.alert('Actualizado', `"${newEntry.productName}" ha sido actualizado.`);
     } else {
-      // Añadir nueva entrada
-      setCollectedProductEntries((prevEntries) => [...prevEntries, newEntry]);
+      updatedEntries = [...collectedProductEntries, newEntry];
       Alert.alert('Añadido', `Presentación "${newEntry.productName}" añadida.`);
     }
+    setCollectedProductEntries(updatedEntries);
 
-    // Limpiar campos para la siguiente entrada
-    setSelectedPresentationId(null);
-    setPrice('');
+    // Reiniciar los estados de los campos después de añadir/actualizar
+    setSelectedProductId(null);
+    setProductPrice('');
+    setSelectedCurrency('USD'); // Reiniciar la moneda a su valor por defecto
     setShelfStock('');
     setGeneralStock('');
+    setIsSinStockSelected(false); // IMPORTANTE: Resetear el estado de "SIN STOCK"
   };
 
-  const handleGoToCompetitors = () => {
+  // Función para el botón "Finalizar Sección Chispa y Continuar"
+  const handleFinalizeSectionAndContinue = () => {
     if (collectedProductEntries.length === 0) {
-      Alert.alert('Atención', 'Debes añadir al menos una presentación antes de continuar.');
+      Alert.alert('Atención', 'Debes añadir al menos una presentación Chispa antes de continuar.');
+      markSectionComplete('chispa', false);
       return;
     }
-    // Navegar a la pantalla de competencia, pasando los datos recopilados
-    navigation.navigate('Competitor', {
-      commerceId: commerceId,
-      productEntries: collectedProductEntries,
-    });
+
+    updateProductEntries(collectedProductEntries);
+    markSectionComplete('chispa', true);
+    if (currentCommerceId) {
+      navigation.navigate('Competitor', { commerceId: currentCommerceId }); // Navega a la siguiente sección
+    } else {
+      Alert.alert('Error de Sesión', 'El comercio actual no está definido. Por favor, reinicia la visita.', [
+        { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+      ]);
+    }
   };
 
   const renderProductEntryItem = ({ item }: { item: ProductVisitEntry }) => (
     <View style={styles.productEntryItem}>
       <Text style={styles.productEntryText}>** {item.productName} **</Text>
-      <Text style={styles.productEntryDetail}>Precio: ${item.price.toFixed(2)}</Text>
-      <Text style={styles.productEntryDetail}>Anaqueles: {item.shelfStock}</Text>
-      <Text style={styles.productEntryDetail}>General: {item.generalStock}</Text>
+      {/* Mostrar la moneda junto al precio, y manejar 'null' */}
+      <Text style={styles.productEntryDetail}>
+        Precio: {item.price !== null ? `${item.currency === 'USD' ? '$' : 'BsF'} ${item.price.toFixed(2)}` : 'N/A'}
+      </Text>
+      <Text style={styles.productEntryDetail}>
+        Anaqueles: {item.shelfStock !== null ? item.shelfStock : 'N/A'}
+      </Text>
+      <Text style={styles.productEntryDetail}>
+        General: {item.generalStock !== null ? item.generalStock : 'N/A'}
+      </Text>
     </View>
   );
 
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007bff" />
-        <Text style={styles.loadingText}>Cargando información del comercio...</Text>
-      </View>
-    );
-  }
+  // Filtrar las presentaciones disponibles:
+  // 1. Excluir las que ya están en collectedProductEntries.
+  // 2. Si "SIN STOCK" ya está añadido, no lo mostramos en la lista.
+  const availablePresentations = CHISPA_PRESENTATIONS.filter(
+    (presentation) => {
+      // Si es "SIN STOCK", solo la mostramos si aún no ha sido añadida
+      if (presentation.name === 'SIN STOCK') {
+        return !collectedProductEntries.some((entry) => entry.productName === 'SIN STOCK');
+      }
+      // Para cualquier otra presentación, la mostramos si no está ya en la lista de entradas recolectadas
+      return !collectedProductEntries.some((entry) => entry.productId === presentation.id);
+    }
+  );
 
-  if (!commerce) {
+
+  if (isLoadingCommerce) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>No se pudo cargar el comercio. Por favor, intente de nuevo.</Text>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.button}>
-            <Text style={styles.buttonText}>Volver</Text>
-        </TouchableOpacity>
+        <Text style={styles.loadingText}>Cargando información del comercio...</Text>
       </View>
     );
   }
@@ -188,12 +259,12 @@ const VisitScreen: React.FC<VisitScreenProps> = ({ navigation, route }) => {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBackToVisitItems}>
             <Text style={styles.backButtonText}>{'< Volver'}</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Visita a:</Text>
-          <Text style={styles.commerceName}>{commerce.name}</Text>
-          <Text style={styles.commerceAddress}>{commerce.address}</Text>
+          <Text style={styles.headerTitle}>Productos Chispa para:</Text>
+          <Text style={styles.commerceName}>{commerce?.name || 'Comercio Desconocido'}</Text>
+          {commerce?.address && <Text style={styles.commerceAddress}>{commerce.address}</Text>}
         </View>
 
         <View style={styles.card}>
@@ -202,94 +273,139 @@ const VisitScreen: React.FC<VisitScreenProps> = ({ navigation, route }) => {
           <Text style={styles.inputLabel}>Seleccionar Presentación *</Text>
           <View style={styles.pickerContainer}>
             <Picker
-              selectedValue={selectedPresentationId}
+              selectedValue={selectedProductId}
               onValueChange={(itemValue) => {
-                setSelectedPresentationId(itemValue);
-                // Limpiar campos al cambiar de producto para evitar datos erróneos
-                setPrice('');
-                setShelfStock('');
-                setGeneralStock('');
+                setSelectedProductId(itemValue);
+                // Buscar la presentación seleccionada para saber si es "SIN STOCK"
+                const selected = CHISPA_PRESENTATIONS.find(p => p.id === itemValue);
+                const isCurrentlySinStock = selected?.name === 'SIN STOCK';
+
+                setIsSinStockSelected(isCurrentlySinStock); // Actualizar el nuevo estado
+
+                // Limpiar campos o establecer valores predeterminados
+                if (isCurrentlySinStock) {
+                  setProductPrice('');
+                  setSelectedCurrency('USD'); // Resetear a USD por defecto si es SIN STOCK
+                  setShelfStock('');
+                  setGeneralStock('');
+                } else {
+                  // Si no es SIN STOCK, aún así puedes limpiar los campos para una nueva entrada
+                  setProductPrice('');
+                  setSelectedCurrency('USD');
+                  setShelfStock('');
+                  setGeneralStock('');
+                }
               }}
               style={styles.picker}
               itemStyle={styles.pickerItem}
             >
               <Picker.Item label="-- Selecciona una Presentación --" value={null} />
-              {CHISPA_PRESENTATIONS.map((presentation) => (
+              {/* Usar las presentaciones disponibles */}
+              {availablePresentations.map((presentation) => (
                 <Picker.Item key={presentation.id} label={presentation.name} value={presentation.id} />
               ))}
             </Picker>
           </View>
 
-          {/* Campos que se activan al seleccionar una presentación */}
-          {selectedPresentationId && (
+          {selectedProductId && (
             <View>
-              <Text style={styles.inputLabel}>Precio *</Text>
+              <Text style={styles.inputLabel}>Precio Venta *</Text>
+              {/* Controles para seleccionar la moneda */}
+              <View style={styles.currencyToggleContainer}>
+                <TouchableOpacity
+                  style={[styles.currencyButton, selectedCurrency === 'USD' && styles.currencyButtonSelected]}
+                  onPress={() => setSelectedCurrency('USD')}
+                  disabled={isSinStockSelected} // Deshabilitar si es SIN STOCK
+                >
+                  <Text style={[styles.currencyButtonText, selectedCurrency === 'USD' && styles.currencyButtonTextSelected, isSinStockSelected && { color: '#a0a0a0' }]}>$ USD</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.currencyButton, selectedCurrency === 'VES' && styles.currencyButtonSelected]}
+                  onPress={() => setSelectedCurrency('VES')}
+                  disabled={isSinStockSelected} // Deshabilitar si es SIN STOCK
+                >
+                  <Text style={[styles.currencyButtonText, selectedCurrency === 'VES' && styles.currencyButtonTextSelected, isSinStockSelected && { color: '#a0a0a0' }]}>BsF VES</Text>
+                </TouchableOpacity>
+              </View>
               <TextInput
-                style={styles.input}
-                placeholder="Precio de la presentación (ej: 15.50)"
-                placeholderTextColor="#999"
-                value={price}
-                onChangeText={setPrice}
+                style={[styles.input, isSinStockSelected && styles.inputDisabled]} // Estilo para deshabilitar
+                placeholder="Precio de venta (ej. 12.50)"
+                placeholderTextColor={isSinStockSelected ? '#c0c0c0' : '#999'}
+                value={productPrice}
+                onChangeText={setProductPrice}
                 keyboardType="numeric"
-                returnKeyType="next"
+                returnKeyType="done"
+                editable={!isSinStockSelected} // Deshabilitar si es SIN STOCK
               />
 
-              <Text style={styles.inputLabel}>Stock Anaqueles *</Text>
+              <Text style={styles.inputLabel}>Stock en Anaqueles *</Text>
               <TextInput
-                style={styles.input}
-                placeholder="Cantidad en anaqueles"
-                placeholderTextColor="#999"
+                style={[styles.input, isSinStockSelected && styles.inputDisabled]}
+                placeholder="Unidades en anaqueles"
+                placeholderTextColor={isSinStockSelected ? '#c0c0c0' : '#999'}
                 value={shelfStock}
                 onChangeText={setShelfStock}
                 keyboardType="numeric"
-                returnKeyType="next"
+                returnKeyType="done"
+                editable={!isSinStockSelected} // Deshabilitar si es SIN STOCK
               />
 
-              <Text style={styles.inputLabel}>Stock General/Inventario *</Text>
+              <Text style={styles.inputLabel}>Stock en Bodega *</Text>
               <TextInput
-                style={styles.input}
-                placeholder="Cantidad en almacén/inventario"
-                placeholderTextColor="#999"
+                style={[styles.input, isSinStockSelected && styles.inputDisabled]}
+                placeholder="Unidades en inventario"
+                placeholderTextColor={isSinStockSelected ? '#c0c0c0' : '#999'}
                 value={generalStock}
                 onChangeText={setGeneralStock}
                 keyboardType="numeric"
                 returnKeyType="done"
-                onSubmitEditing={handleAddPresentationEntry}
+                onSubmitEditing={handleAddProductEntry}
+                editable={!isSinStockSelected} // Deshabilitar si es SIN STOCK
               />
             </View>
           )}
 
           <TouchableOpacity
-            style={[styles.addButton, !selectedPresentationId && styles.addButtonDisabled]}
-            onPress={handleAddPresentationEntry}
-            disabled={!selectedPresentationId}
+            style={[styles.addButton, !selectedProductId && styles.addButtonDisabled]}
+            onPress={handleAddProductEntry}
+            disabled={!selectedProductId}
           >
             <Text style={styles.addButtonText}>+ Añadir Presentación</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Sección para mostrar presentaciones añadidas */}
         {collectedProductEntries.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Presentaciones Añadidas</Text>
+            <Text style={styles.sectionTitle}>Presentaciones Chispa Añadidas</Text>
             <FlatList
               data={collectedProductEntries}
               renderItem={renderProductEntryItem}
-              keyExtractor={(item, index) => item.productId + index} // Usar productId + index para key si hay duplicados
-              contentContainerStyle={styles.addedProductsList}
-              scrollEnabled={false} // <--- ¡Esta es la corrección!
+              keyExtractor={(item, index) => item.productId + index.toString()}
+              contentContainerStyle={styles.collectedProductsList}
+              scrollEnabled={false}
             />
           </View>
         )}
 
-        {/* Botón para continuar a la siguiente pantalla */}
+        <Text style={styles.infoText}>
+            (Todos los datos aún no se han guardado definitivamente. Se guardarán al finalizar la visita.)
+        </Text>
+
         <TouchableOpacity
-          style={[styles.continueButton, collectedProductEntries.length === 0 && styles.continueButtonDisabled]}
-          onPress={handleGoToCompetitors}
+          style={[styles.finalizeButton, collectedProductEntries.length === 0 && styles.finalizeButtonDisabled]}
+          onPress={handleFinalizeSectionAndContinue}
           disabled={collectedProductEntries.length === 0}
         >
-          <Text style={styles.continueButtonText}>Añadir Competencia </Text>
+          <Text style={styles.finalizeButtonText}>Finalizar Sección Chispa y Continuar</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.goToItemsButton}
+          onPress={handleGoToVisitItems}
+        >
+          <Text style={styles.goToItemsButtonText}>Ir a Items de Visita</Text>
+        </TouchableOpacity>
+
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -299,6 +415,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#e9eff4',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#e9eff4',
+  },
+  loadingText: {
+    fontSize: 18,
+    color: '#555',
   },
   scrollContent: {
     flexGrow: 1,
@@ -364,8 +490,49 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 20,
+    marginBottom: 15,
     textAlign: 'center',
+  },
+  noDataText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    paddingVertical: 10,
+  },
+  collectedProductsList: {
+    marginTop: 10,
+  },
+  productEntryItem: {
+    backgroundColor: '#e6f7ff',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#99d9ea',
+  },
+  productEntryText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 3,
+  },
+  productEntryDetail: {
+    fontSize: 14,
+    color: '#666',
+  },
+  infoText: {
+    fontSize: 13,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 15,
+    fontStyle: 'italic',
+  },
+  placeholderText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    paddingVertical: 10,
   },
   inputLabel: {
     width: '100%',
@@ -414,21 +581,57 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  // NUEVO ESTILO: Para campos deshabilitados
+  inputDisabled: {
+    backgroundColor: '#e0e0e0',
+    color: '#a0a0a0',
+  },
+  // Nuevos estilos para los botones de moneda
+  currencyToggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 15,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  currencyButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#e0e0e0',
+  },
+  currencyButtonSelected: {
+    backgroundColor: '#007bff',
+    borderColor: '#007bff',
+  },
+  currencyButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#555',
+  },
+  currencyButtonTextSelected: {
+    color: '#fff',
+  },
   addButton: {
-    backgroundColor: '#28a745', // Verde para añadir producto
+    backgroundColor: '#007bff',
     paddingVertical: 15,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
-    shadowColor: 'rgba(40, 167, 69, 0.4)',
+    shadowColor: 'rgba(0, 123, 255, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
     elevation: 5,
   },
   addButtonDisabled: {
-    backgroundColor: '#90ee90',
+    backgroundColor: '#a0c9f8',
     shadowOpacity: 0.2,
     elevation: 2,
   },
@@ -437,73 +640,48 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: 'bold',
   },
-  continueButton: {
-    backgroundColor: '#007bff', // Azul para continuar
-    paddingVertical: 15,
+  finalizeButton: {
+    backgroundColor: '#28a745',
+    paddingVertical: 18,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 20,
-    marginBottom: 20,
-    shadowColor: 'rgba(0, 123, 255, 0.4)',
+    marginBottom: 10,
+    shadowColor: 'rgba(40, 167, 69, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
     elevation: 5,
   },
-  continueButtonDisabled: {
-    backgroundColor: '#a0c9f8',
+  finalizeButtonDisabled: {
+    backgroundColor: '#90ee90',
     shadowOpacity: 0.2,
     elevation: 2,
   },
-  continueButtonText: {
+  finalizeButtonText: {
     color: '#fff',
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: 'bold',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  goToItemsButton: {
+    backgroundColor: '#6c757d',
+    paddingVertical: 15,
+    borderRadius: 10,
     alignItems: 'center',
-    backgroundColor: '#e9eff4',
-  },
-  loadingText: {
+    justifyContent: 'center',
     marginTop: 10,
-    fontSize: 16,
-    color: '#555',
+    marginBottom: 20,
+    shadowColor: 'rgba(108, 117, 125, 0.4)',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  button: {
-    backgroundColor: '#007bff',
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 8,
-    marginTop: 20,
-  },
-  buttonText: {
+  goToItemsButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-  },
-  addedProductsList: {
-    marginTop: 10,
-  },
-  productEntryItem: {
-    backgroundColor: '#f0f8ff', // Un color claro para los items de la lista
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#b0e0e6',
-  },
-  productEntryText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 3,
-  },
-  productEntryDetail: {
-    fontSize: 14,
-    color: '#666',
   },
 });
 

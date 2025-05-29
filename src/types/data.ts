@@ -6,7 +6,8 @@ export interface Commerce {
   name: string;
   address: string;
   phone?: string;
-  category: string;
+  category?: string;
+  createdAt: string;
 }
 
 // Definición para una "Presentación Chispa"
@@ -17,11 +18,12 @@ export interface ChispaPresentation {
 
 // Definición para la entrada de visita de una presentación específica (Chispa)
 export interface ProductVisitEntry {
-  productId: string; // ID de la presentación Chispa
-  productName: string; // Nombre de la presentación para facilitar la visualización
-  price: number; // Precio registrado
-  shelfStock: number; // Stock en anaqueles
-  generalStock: number; // Stock general/inventario
+  productId: string;
+  productName: string;
+  currency: 'USD' | 'VES';
+  price: number | null;     // <--- ¡IMPORTANTE!
+  shelfStock: number | null; // <--- ¡IMPORTANTE!
+  generalStock: number | null; // <--- ¡IMPORTANTE!
 }
 
 // --- TIPOS PARA COMPETENCIA ---
@@ -33,32 +35,58 @@ export interface CompetitorProduct {
 
 // Definición para la entrada de visita de un producto de la competencia
 export interface CompetitorVisitEntry {
-  productId: string; // ID del producto de la competencia
-  productName: string; // Nombre del producto de la competencia
-  price: number; // Precio registrado para el competidor
+  productId: string;
+  productName: string;
+  price: number;
+  currency: 'USD' | 'VES';
 }
 // --- FIN TIPOS COMPETENCIA ---
 
-
 // --- NUEVOS TIPOS PARA FOTOS Y UBICACIÓN ---
-export interface LocationData {
+// Tipo para una entrada individual de foto
+export interface PhotoEntry {
+  uri: string;
+  timestamp: string;
+  base64: string; // Si guardas la base64
+}
+
+// Definición para los datos de ubicación
+export interface LocationEntry {
   latitude: number;
   longitude: number;
-  timestamp: string; // ISO string de la fecha y hora de la captura
+  timestamp: string;
+  accuracy?: number | null;
+  altitude?: number | null;
   cityName?: string;
+}
+
+// **NUEVA INTERFAZ**: Para el estado de cada sección de la visita
+export interface VisitSectionStatus {
+  name: 'chispa' | 'competitor' | 'photos_location' | 'info_general';
+  isComplete: boolean;
+  icon: string; // Por ejemplo, 'info-circle', 'cube-scan', 'account-group', 'camera'
+  color: string; // Por ejemplo, '#28a745', '#dc3545', '#ffc107', '#007bff'
+}
+
+// **NUEVA INTERFAZ**: Agrupa fotos y ubicación, como VisitContext la usa internamente
+export interface PhotoAndLocationEntry {
+  photos: string[]; // Arreglo de URIs de las fotos
+  location: LocationEntry | null;
 }
 // --- FIN NUEVOS TIPOS ---
 
-
 // Definición para una Visita completa a un Comercio
 export interface Visit {
-  id: string; // ID único de la visita
-  commerceId: string; // ID del comercio visitado
-  timestamp: string; // Fecha y hora de la visita (ISO string de inicio de visita)
-  productEntries: ProductVisitEntry[]; // Array de productos Chispa registrados en esta visita
-  competitorEntries: CompetitorVisitEntry[]; // Array de productos de la competencia
-  photoBeforeUri?: string; // URI de la foto antes (opcional por si no se toma)
-  photoAfterUri?: string;  // URI de la foto después (opcional por si no se toma)
-  location?: LocationData; // Datos de ubicación (opcional por si falla la captura)
-  promoterId?: string; // Por si quieres asociar el promotor
+  id: string;
+  commerceId: string;
+  commerceName: string; // ¡Ahora requerido!
+  timestamp: string;
+  productEntries: ProductVisitEntry[];
+  competitorEntries: CompetitorVisitEntry[];
+  photos: string[]; // URIs de las fotos
+  location: LocationEntry | null;
+  sectionStatus: VisitSectionStatus[]; // Estado de las secciones de la visita
+  promoterId?: string; // ID del promotor (opcional)
+  photoBeforeUri?: string; // URI de la foto antes (opcional)
+  photoAfterUri?: string; // URI de la foto después (opcional)
 }

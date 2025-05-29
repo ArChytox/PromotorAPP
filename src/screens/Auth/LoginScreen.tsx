@@ -13,7 +13,7 @@ import {
   ScrollView,
   Image, // Importamos Image para el logo
 } from 'react-native';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 
 const LoginScreen = () => {
   const [username, setUsername] = useState<string>('');

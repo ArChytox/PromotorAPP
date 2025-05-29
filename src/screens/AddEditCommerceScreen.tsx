@@ -1,5 +1,5 @@
 // src/screens/AddEditCommerceScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
@@ -40,8 +41,43 @@ const AddEditCommerceScreen: React.FC<AddEditCommerceScreenProps> = ({ navigatio
   const [phone, setPhone] = useState<string>('');
   const [category, setCategory] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
+  const [createdAt, setCreatedAt] = useState<string>(''); // <-- Estado para createdAt
 
   const isEditing = initialCommerceId !== undefined;
+
+  useEffect(() => {
+    const loadCommerceData = async () => {
+      if (isEditing && initialCommerceId) {
+        setIsLoading(true);
+        try {
+          const existingCommerces = await getCommerces();
+          const commerceToEdit = existingCommerces.find(c => c.id === initialCommerceId);
+          if (commerceToEdit) {
+            setName(commerceToEdit.name);
+            setAddress(commerceToEdit.address);
+            setPhone(commerceToEdit.phone || '');
+            setCategory(commerceToEdit.category || '');
+            setCreatedAt(commerceToEdit.createdAt || new Date().toISOString()); // <-- Cargar o asignar si falta
+          } else {
+            Alert.alert('Error', 'Comercio no encontrado para editar.');
+            navigation.goBack();
+          }
+        } catch (error) {
+          console.error('Error al cargar datos del comercio para edición:', error);
+          Alert.alert('Error', 'No se pudieron cargar los datos del comercio.');
+          navigation.goBack();
+        } finally {
+          setIsLoading(false);
+          setIsDataLoaded(true);
+        }
+      } else {
+        setIsDataLoaded(true);
+      }
+    };
+
+    loadCommerceData();
+  }, [isEditing, initialCommerceId, navigation]);
 
   const handleSaveCommerce = async () => {
     if (!name.trim() || !address.trim()) {
@@ -57,45 +93,37 @@ const AddEditCommerceScreen: React.FC<AddEditCommerceScreenProps> = ({ navigatio
       const formattedName = name.trim().toUpperCase();
 
       if (isEditing) {
-        // En una aplicación real, buscarías el comercio por initialCommerceId y lo actualizarías.
-        // Como tu código actual añade uno nuevo incluso en edición, mantenemos ese comportamiento.
-        // Para una edición real, la lógica sería:
-        // updatedCommerces = existingCommerces.map(c =>
-        //   c.id === initialCommerceId
-        //     ? { ...c, name: formattedName, address: address.trim(), phone: phone.trim(), category: category.trim() || 'General' }
-        //     : c
-        // );
+        updatedCommerces = existingCommerces.map(c =>
+          c.id === initialCommerceId
+            ? { 
+                ...c, 
+                name: formattedName, 
+                address: address.trim(), 
+                phone: phone.trim(), 
+                category: category.trim() || 'General',
+                createdAt: c.createdAt // <-- Preservar la fecha de creación existente
+              }
+            : c
+        );
+        Alert.alert('Éxito', `Comercio "${formattedName}" actualizado exitosamente.`);
 
-        Alert.alert('Funcionalidad de Edición', 'La edición de comercios aún no está completamente implementada. Se añadió como nuevo por ahora.');
-        const newCommerce: Commerce = {
-          id: uuidv4(), // Esto generaría un ID nuevo, no actualiza el existente
-          name: formattedName,
-          address: address.trim(),
-          phone: phone.trim(),
-          category: category.trim() || 'General',
-        };
-        updatedCommerces = [...existingCommerces, newCommerce]; // Añadiendo como nuevo
       } else {
-        // Esto es para añadir un nuevo comercio
         const newCommerce: Commerce = {
           id: uuidv4(),
           name: formattedName,
           address: address.trim(),
           phone: phone.trim(),
           category: category.trim() || 'General',
+          createdAt: new Date().toISOString(), // <-- Asignar fecha de creación al añadir
         };
         updatedCommerces = [...existingCommerces, newCommerce];
+        Alert.alert('Éxito', `Comercio "${formattedName}" añadido exitosamente.`);
       }
 
       await saveCommerces(updatedCommerces);
-
-      Alert.alert('Éxito', `Comercio "${formattedName}" ${isEditing ? 'actualizado' : 'añadido'} exitosamente.`);
       
-      // --- ¡CAMBIO CRUCIAL AQUÍ! ---
-      // Navegar a la pantalla 'MyVisits' después de guardar un comercio.
-      // Opcionalmente, podrías navegar a 'CommerceList' si prefieres volver a la lista principal de comercios.
-      // He elegido 'MyVisits' según tu última instrucción.
-      navigation.navigate('MyVisits');
+      navigation.navigate('CommerceList'); 
+
     } catch (error) {
       console.error('Error al guardar comercio:', error);
       Alert.alert('Error', `No se pudo ${isEditing ? 'actualizar' : 'añadir'} el comercio. Intenta de nuevo.`);
@@ -103,6 +131,15 @@ const AddEditCommerceScreen: React.FC<AddEditCommerceScreenProps> = ({ navigatio
       setIsLoading(false);
     }
   };
+
+  if (isLoading && !isDataLoaded) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007bff" />
+        <Text style={styles.loadingText}>Cargando comercio...</Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -185,6 +222,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#e9eff4',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#e9eff4',
+  },
+  loadingText: {
+    fontSize: 18,
+    color: '#555',
   },
   scrollContent: {
     flexGrow: 1,

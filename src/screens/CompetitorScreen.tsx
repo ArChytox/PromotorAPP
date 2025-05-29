@@ -1,5 +1,5 @@
 // src/screens/CompetitorScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,15 +11,17 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RouteProp } from '@react-navigation/native';
+import { StackScreenProps } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
-import { ProductVisitEntry, Commerce, CompetitorProduct, CompetitorVisitEntry } from '../types/data';
+import { Commerce, CompetitorProduct, CompetitorVisitEntry, ProductVisitEntry } from '../types/data';
 import { getCommerces } from '../utils/storage';
 import { Picker } from '@react-native-picker/picker';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
+import { useVisit } from '../context/VisitContext';
+import { useIsFocused } from '@react-navigation/native';
 
 // Lista de productos de la competencia (Generados con IDs únicos)
 const COMPETITOR_PRODUCTS: CompetitorProduct[] = [
@@ -73,70 +75,100 @@ const COMPETITOR_PRODUCTS: CompetitorProduct[] = [
   { id: uuidv4(), name: 'MASIA CLÁSICA 1kg' },
   { id: uuidv4(), name: 'LUISANA SUPREMO 1kg' },
   { id: uuidv4(), name: 'ELITE SELECTO 1kg' },
-  { id: uuidv4(), name: 'AGUA BLANCA TRADICIONAL 1kg' },
-  { id: uuidv4(), name: 'ARAURIGUA TIPO 2 900g' },
-  { id: uuidv4(), name: 'DOÑA FINA TIPO 2 1kg' },
-  { id: uuidv4(), name: 'LA MOLIENDA TIPO 2 1kg' },
-  { id: uuidv4(), name: 'EL TITAN TIPO 2 1kg' },
 ];
 
-type CompetitorScreenNavigationProp = StackNavigationProp<AppStackParamList, 'Competitor'>;
-type CompetitorScreenRouteProp = RouteProp<AppStackParamList, 'Competitor'>;
+type CompetitorScreenProps = StackScreenProps<AppStackParamList, 'Competitor'>;
 
-interface CompetitorScreenProps {
-  navigation: CompetitorScreenNavigationProp;
-  route: CompetitorScreenRouteProp;
-}
+const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
+  const {
+    currentCommerceId,
+    productEntries, // <--- Importante: `productEntries` viene del contexto aquí.
+    competitorEntries: initialCompetitorEntries,
+    updateCompetitorEntries,
+    markSectionComplete,
+    resetVisit,
+  } = useVisit();
 
-const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }) => {
-  const { commerceId, productEntries } = route.params;
+  const isFocused = useIsFocused();
 
   const [commerce, setCommerce] = useState<Commerce | null>(null);
   const [isLoadingCommerce, setIsLoadingCommerce] = useState<boolean>(true);
   const [selectedCompetitorProductId, setSelectedCompetitorProductId] = useState<string | null>(null);
   const [competitorPrice, setCompetitorPrice] = useState<string>('');
-  const [collectedCompetitorEntries, setCollectedCompetitorEntries] = useState<CompetitorVisitEntry[]>([]); // Estado para acumular entradas de competencia
+  const [selectedCompetitorCurrency, setSelectedCompetitorCurrency] = useState<'USD' | 'VES'>('USD');
+  const [collectedCompetitorEntries, setCollectedCompetitorEntries] = useState<CompetitorVisitEntry[]>(initialCompetitorEntries);
 
   useEffect(() => {
+    setCollectedCompetitorEntries(initialCompetitorEntries);
+  }, [initialCompetitorEntries]);
+
+  useEffect(() => {
+    if (isFocused && !currentCommerceId) {
+      console.warn('ID de comercio no proporcionado a CompetitorScreen. Redirigiendo a CommerceList.');
+      Alert.alert('Error de Sesión', 'No se pudo determinar el comercio actual. Por favor, reinicia la visita.', [
+        {
+          text: 'OK',
+          onPress: () => {
+            resetVisit();
+            navigation.replace('CommerceList');
+          },
+        },
+      ]);
+      return;
+    }
+
     const fetchCommerceDetails = async () => {
       try {
-        if (!commerceId) {
-          console.warn('ID de comercio no proporcionado a CompetitorScreen.');
-          return;
-        }
-        const storedCommerces = await getCommerces();
-        const foundCommerce = storedCommerces.find(c => c.id === commerceId);
-        if (foundCommerce) {
-          setCommerce(foundCommerce);
-        } else {
-          console.warn('Comercio no encontrado en CompetitorScreen.');
+        if (currentCommerceId) {
+          const storedCommerces = await getCommerces();
+          const foundCommerce = storedCommerces.find(c => c.id === currentCommerceId);
+          if (foundCommerce) {
+            setCommerce(foundCommerce);
+          } else {
+            console.warn('Comercio no encontrado en CompetitorScreen para ID:', currentCommerceId);
+            Alert.alert('Error de Sesión', 'El comercio no se encontró. Por favor, selecciona un comercio nuevamente.', [
+              { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } },
+            ]);
+          }
         }
       } catch (error) {
         console.error('Error al cargar detalles del comercio en CompetitorScreen:', error);
+        Alert.alert('Error', 'Hubo un problema al cargar los detalles del comercio.', [
+          { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } },
+        ]);
       } finally {
         setIsLoadingCommerce(false);
       }
     };
 
-    fetchCommerceDetails();
-  }, [commerceId]);
+    if (currentCommerceId) {
+      fetchCommerceDetails();
+    } else {
+      setIsLoadingCommerce(false);
+    }
+  }, [isFocused, currentCommerceId, navigation, resetVisit]);
 
-  const handleGoBack = () => {
-    Alert.alert(
-      "Advertencia",
-      "Si regresas ahora, los datos de competencia que hayas ingresado se perderán. ¿Deseas continuar?",
-      [
-        {
-          text: "No",
-          style: "cancel"
-        },
-        {
-          text: "Sí",
-          onPress: () => navigation.goBack()
-        }
-      ]
-    );
-  };
+  const handleBackToVisitItems = useCallback(() => {
+    updateCompetitorEntries(collectedCompetitorEntries);
+    if (currentCommerceId) {
+      navigation.navigate('VisitItems', { commerceId: currentCommerceId });
+    } else {
+      console.warn('Fallback: currentCommerceId es nulo en handleBackToVisitItems, redirigiendo.');
+      resetVisit();
+      navigation.replace('CommerceList');
+    }
+  }, [navigation, currentCommerceId, collectedCompetitorEntries, updateCompetitorEntries, resetVisit]);
+
+  const handleGoToVisitItems = useCallback(() => {
+    updateCompetitorEntries(collectedCompetitorEntries);
+    if (currentCommerceId) {
+      navigation.navigate('VisitItems', { commerceId: currentCommerceId });
+    } else {
+      console.warn('Fallback: currentCommerceId es nulo en handleGoToVisitItems, redirigiendo.');
+      resetVisit();
+      navigation.replace('CommerceList');
+    }
+  }, [navigation, currentCommerceId, collectedCompetitorEntries, updateCompetitorEntries, resetVisit]);
 
   const handleAddCompetitorEntry = () => {
     if (!selectedCompetitorProductId) {
@@ -167,54 +199,83 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
       productId: selectedCompetitorProductId,
       productName: selectedCompetitorProduct.name,
       price: parsedPrice,
+      currency: selectedCompetitorCurrency,
     };
 
-    // Verificar si el producto ya fue añadido para evitar duplicados o actualizar
     const existingEntryIndex = collectedCompetitorEntries.findIndex(
       (entry) => entry.productId === newEntry.productId
     );
 
+    let updatedEntries: CompetitorVisitEntry[];
     if (existingEntryIndex > -1) {
-      // Actualizar la entrada existente
-      const updatedEntries = [...collectedCompetitorEntries];
+      updatedEntries = [...collectedCompetitorEntries];
       updatedEntries[existingEntryIndex] = newEntry;
-      setCollectedCompetitorEntries(updatedEntries);
       Alert.alert('Actualizado', `"${newEntry.productName}" de la competencia ha sido actualizado.`);
     } else {
-      // Añadir nueva entrada
-      setCollectedCompetitorEntries((prevEntries) => [...prevEntries, newEntry]);
+      updatedEntries = [...collectedCompetitorEntries, newEntry];
       Alert.alert('Añadido', `Producto "${newEntry.productName}" de la competencia añadido.`);
     }
+    setCollectedCompetitorEntries(updatedEntries);
 
-    // Limpiar campos
     setSelectedCompetitorProductId(null);
     setCompetitorPrice('');
+    setSelectedCompetitorCurrency('USD');
   };
 
-  const handleFinalizeVisit = () => {
-    // Navegar a la pantalla de fotos y ubicación, pasando TODOS los datos recopilados
-    navigation.navigate('PhotoAndLocation', {
-      commerceId: commerceId,
-      productEntries: productEntries, // Datos de Chispa
-      competitorEntries: collectedCompetitorEntries, // Datos de Competencia
-    });
+  const handleFinalizeSectionAndContinue = () => {
+    if (collectedCompetitorEntries.length === 0) {
+      Alert.alert('Atención', 'Debes añadir al menos un producto de la competencia antes de continuar.');
+      markSectionComplete('competitor', false);
+      return;
+    }
+
+    if (!currentCommerceId) {
+      Alert.alert('Error de Sesión', 'El comercio actual no está definido. Por favor, reinicia la visita.', [
+        { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } },
+      ]);
+      return;
+    }
+
+    updateCompetitorEntries(collectedCompetitorEntries);
+    markSectionComplete('competitor', true);
+    navigation.navigate('PhotoAndLocation', { commerceId: currentCommerceId });
   };
 
+  // --- CORRECCIÓN EN renderProductEntryItem DENTRO DE CompetitorScreen.tsx ---
+  // Esta función es la que renderiza las entradas de productos Chispa
+  // Y es donde se estaba produciendo el error con .toFixed en valores null.
   const renderProductEntryItem = ({ item }: { item: ProductVisitEntry }) => (
     <View style={styles.productEntryItem}>
       <Text style={styles.productEntryText}>** {item.productName} **</Text>
-      <Text style={styles.productEntryDetail}>Precio: ${item.price.toFixed(2)}</Text>
-      <Text style={styles.productEntryDetail}>Anaqueles: {item.shelfStock}</Text>
-      <Text style={styles.productEntryDetail}>General: {item.generalStock}</Text>
+      <Text style={styles.productEntryDetail}>
+        Precio: {item.price !== null ? `${item.currency === 'USD' ? '$' : 'BsF'} ${item.price.toFixed(2)}` : 'N/A'}
+      </Text>
+      <Text style={styles.productEntryDetail}>
+        Anaqueles: {item.shelfStock !== null ? item.shelfStock : 'N/A'}
+      </Text>
+      <Text style={styles.productEntryDetail}>
+        General: {item.generalStock !== null ? item.generalStock : 'N/A'}
+      </Text>
     </View>
   );
+  // --- FIN DE CORRECCIÓN PARA renderProductEntryItem ---
 
+  // Esta función renderiza las entradas de productos de la Competencia (no afectadas por el error de Chispa)
   const renderCompetitorEntryItem = ({ item }: { item: CompetitorVisitEntry }) => (
     <View style={styles.competitorEntryItem}>
       <Text style={styles.competitorEntryText}>** {item.productName} **</Text>
-      <Text style={styles.competitorEntryDetail}>Precio: ${item.price.toFixed(2)}</Text>
+      <Text style={styles.competitorEntryDetail}>Precio: {item.currency === 'USD' ? '$' : 'BsF'} {item.price.toFixed(2)}</Text>
     </View>
   );
+
+  if (!currentCommerceId || isLoadingCommerce) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007bff" />
+        <Text style={styles.loadingText}>Cargando información del comercio...</Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -223,15 +284,11 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBackToVisitItems}>
             <Text style={styles.backButtonText}>{'< Volver'}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Competencia para:</Text>
-          {isLoadingCommerce ? (
-            <Text style={styles.commerceName}>Cargando...</Text>
-          ) : (
-            <Text style={styles.commerceName}>{commerce?.name || 'Comercio Desconocido'}</Text>
-          )}
+          <Text style={styles.commerceName}>{commerce?.name || 'Comercio Desconocido'}</Text>
           {commerce?.address && <Text style={styles.commerceAddress}>{commerce.address}</Text>}
         </View>
 
@@ -242,15 +299,14 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
           ) : (
             <FlatList
               data={productEntries}
-              renderItem={renderProductEntryItem}
-              keyExtractor={(item, index) => item.productId + index}
+              renderItem={renderProductEntryItem} // <-- Usa la función corregida aquí
+              keyExtractor={(item, index) => item.productId + index.toString()}
               contentContainerStyle={styles.collectedProductsList}
-              scrollEnabled={false} // Para que el ScrollView padre maneje el scroll
+              scrollEnabled={false}
             />
           )}
         </View>
 
-        {/* Sección para añadir productos de la competencia */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Registro de Competencia</Text>
 
@@ -260,7 +316,8 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
               selectedValue={selectedCompetitorProductId}
               onValueChange={(itemValue) => {
                 setSelectedCompetitorProductId(itemValue);
-                setCompetitorPrice(''); // Limpiar precio al cambiar de producto
+                setCompetitorPrice('');
+                setSelectedCompetitorCurrency('USD');
               }}
               style={styles.picker}
               itemStyle={styles.pickerItem}
@@ -275,6 +332,20 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
           {selectedCompetitorProductId && (
             <View>
               <Text style={styles.inputLabel}>Precio Competencia *</Text>
+              <View style={styles.currencyToggleContainer}>
+                <TouchableOpacity
+                  style={[styles.currencyButton, selectedCompetitorCurrency === 'USD' && styles.currencyButtonSelected]}
+                  onPress={() => setSelectedCompetitorCurrency('USD')}
+                >
+                  <Text style={[styles.currencyButtonText, selectedCompetitorCurrency === 'USD' && styles.currencyButtonTextSelected]}>$ USD</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.currencyButton, selectedCompetitorCurrency === 'VES' && styles.currencyButtonSelected]}
+                  onPress={() => setSelectedCompetitorCurrency('VES')}
+                >
+                  <Text style={[styles.currencyButtonText, selectedCompetitorCurrency === 'VES' && styles.currencyButtonTextSelected]}>BsF VES</Text>
+                </TouchableOpacity>
+              </View>
               <TextInput
                 style={styles.input}
                 placeholder="Precio del producto de la competencia"
@@ -297,14 +368,13 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
           </TouchableOpacity>
         </View>
 
-        {/* Sección para mostrar productos de la competencia añadidos */}
         {collectedCompetitorEntries.length > 0 && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Productos de Competencia Añadidos</Text>
             <FlatList
               data={collectedCompetitorEntries}
               renderItem={renderCompetitorEntryItem}
-              keyExtractor={(item, index) => item.productId + index}
+              keyExtractor={(item, index) => item.productId + index.toString()}
               contentContainerStyle={styles.collectedProductsList}
               scrollEnabled={false}
             />
@@ -312,16 +382,24 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation, route }
         )}
 
         <Text style={styles.infoText}>
-            (Todos los datos aún no se han guardado. Se guardarán al finalizar la visita.)
+          (Todos los datos aún no se han guardado definitivamente. Se guardarán al finalizar la visita.)
         </Text>
 
-        {/* Botón para continuar a la siguiente sección (o guardar si es la última) */}
         <TouchableOpacity
-          style={styles.finalizeButton}
-          onPress={handleFinalizeVisit}
+          style={[styles.finalizeButton, collectedCompetitorEntries.length === 0 && styles.finalizeButtonDisabled, styles.centeredButton]}
+          onPress={handleFinalizeSectionAndContinue}
+          disabled={collectedCompetitorEntries.length === 0}
         >
-          <Text style={styles.finalizeButtonText}>Continuar Tomar Foto </Text>
+          <Text style={[styles.finalizeButtonText, styles.buttonTextCentered]}>Finalizar Sección Competencia y Continuar</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.goToItemsButton, styles.centeredButton]}
+          onPress={handleGoToVisitItems}
+        >
+          <Text style={[styles.goToItemsButtonText, styles.buttonTextCentered]}>Ir a Items de Visita</Text>
+        </TouchableOpacity>
+
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -332,6 +410,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#e9eff4',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#e9eff4',
+  },
+  loadingText: {
+    fontSize: 18,
+    color: '#555',
+  },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 20,
@@ -339,7 +427,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   header: {
-    backgroundColor: '#ffc107', // Un color diferente para esta pantalla
+    backgroundColor: '#ffc107',
     padding: 15,
     borderRadius: 10,
     marginBottom: 20,
@@ -410,7 +498,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   productEntryItem: {
-    backgroundColor: '#e6f7ff', // Un color claro para los items de la lista Chispa
+    backgroundColor: '#e6f7ff',
     padding: 10,
     borderRadius: 8,
     marginBottom: 8,
@@ -428,7 +516,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   competitorEntryItem: {
-    backgroundColor: '#ffe6e6', // Un color claro para los items de la lista de competencia
+    backgroundColor: '#ffe6e6',
     padding: 10,
     borderRadius: 8,
     marginBottom: 8,
@@ -505,8 +593,38 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  currencyToggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 15,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  currencyButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#e0e0e0',
+  },
+  currencyButtonSelected: {
+    backgroundColor: '#dc3545',
+    borderColor: '#dc3545',
+  },
+  currencyButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#555',
+  },
+  currencyButtonTextSelected: {
+    color: '#fff',
+  },
   addButton: {
-    backgroundColor: '#dc3545', // Rojo para añadir competencia
+    backgroundColor: '#dc3545',
     paddingVertical: 15,
     borderRadius: 10,
     alignItems: 'center',
@@ -529,23 +647,57 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   finalizeButton: {
-    backgroundColor: '#007bff', // Azul para finalizar
+    backgroundColor: '#007bff',
     paddingVertical: 18,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 20,
-    marginBottom: 20,
+    marginBottom: 10,
     shadowColor: 'rgba(0, 123, 255, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
     elevation: 5,
+    width: '100%',
+  },
+  finalizeButtonDisabled: {
+    backgroundColor: '#a0c9f8',
+    shadowOpacity: 0.2,
+    elevation: 2,
   },
   finalizeButtonText: {
     color: '#fff',
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  goToItemsButton: {
+    backgroundColor: '#6c757d',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+    shadowColor: 'rgba(108, 117, 125, 0.4)',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
+    width: '100%',
+  },
+  goToItemsButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  centeredButton: {
+    alignSelf: 'center',
+    maxWidth: 350,
+    minWidth: 200,
+  },
+  buttonTextCentered: {
+    textAlign: 'center',
   },
 });
 

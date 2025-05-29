@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#007bff',
     // Ajuste de paddingTop para considerar la barra de estado
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 50,
+    paddingTop: Platform.OS === 'android' ? ((StatusBar.currentHeight || 0) + 10) : 50,
     paddingBottom: 20,
     paddingHorizontal: 15,
     flexDirection: 'row', // Para que el botón y el título estén en la misma línea
