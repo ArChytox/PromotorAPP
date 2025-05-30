@@ -21,12 +21,11 @@ const AppContent = () => {
   return (
     <NavigationContainer>
       {isAuthenticated ? (
-        // Si el usuario está autenticado, envuelve el AppNavigator con el VisitProvider
-        <VisitProvider> {/* <--- VisitProvider envuelve AppNavigator */}
+    
+        <VisitProvider>
           <AppNavigator />
         </VisitProvider>
       ) : (
-        // Si no está autenticado, muestra el AuthNavigator
         <AuthNavigator />
       )}
     </NavigationContainer>
