@@ -1,92 +1,133 @@
 // src/types/data.ts
 
-// Definición para el tipo de Comercio
+// --- Entradas de la UI / Contexto (cómo los manejas en tu aplicación) ---
+
+export interface ProductVisitEntry {
+  productId: string; // Asumimos que es UUID en la BD
+  productName: string;
+  currency: string;
+  price: number | null;
+  shelfStock: number | null;
+  generalStock: number | null;
+}
+
+export interface CompetitorVisitEntry {
+  productId: string; // Asumimos que es UUID en la BD
+  productName: string;
+  price: number;
+  currency: string;
+}
+
+export interface PhotoEntry {
+  uri: string; // URI local (file:///)
+  timestamp: string;
+  type: 'before' | 'after' | 'shelf' | 'other'; // Definir tipos de fotos
+}
+
+export interface LocationEntry {
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+  accuracy: number | null;
+  altitude: number | null;
+  cityName: string | null;
+  addressName: string | null;
+  stateName: string | null; // <-- ¡NUEVA PROPIEDAD AGREGADA AQUÍ!
+}
+
+// --- Tipos para el estado de la sección ---
+export type VisitSectionStatusType = 'completed' | 'pending' | 'error'; // Ajustado para ser más general
+export interface VisitSectionState {
+  chispa: VisitSectionStatusType;
+  competitor: VisitSectionStatusType;
+  photos_location: VisitSectionStatusType;
+  info_general: VisitSectionStatusType;
+  summary: VisitSectionStatusType;
+}
+
+// --- Tipos de Datos tal como se almacenan en Supabase ---
+
+// Visit principal (para la tabla `visits`)
+export interface StoredVisit {
+  id?: string; // El ID lo genera Supabase
+  commerce_id: string;
+  commerce_name: string;
+  timestamp: string; // start_timestamp
+  end_timestamp: string;
+  promoter_id: string | null;
+  notes?: string | null; // Si añades esta columna
+  is_synced: boolean;
+  section_status: VisitSectionState; // Usa el tipo de estado de sección más general
+}
+
+// Para la tabla `product_visits`
+export interface StoredProductVisit {
+  id?: string;
+  visit_id: string; // FK
+  product_id: string; // FK a chispa_presentations (UUID)
+  product_name: string;
+  currency: string;
+  price: number | null;
+  shelf_stock: number | null;
+  general_stock: number | null;
+  created_at?: string;
+}
+
+// Para la tabla `competitor_product_visits`
+export interface StoredCompetitorProductVisit {
+  id?: string;
+  visit_id: string; // FK
+  product_id: string; // FK a competitor_products (UUID)
+  product_name: string;
+  price: number;
+  currency: string;
+  created_at?: string;
+}
+
+// Para la tabla `visit_photos`
+export interface StoredVisitPhoto {
+  id?: string;
+  visit_id: string; // FK
+  photo_url: string; // La URL pública/firmada de Supabase Storage
+  timestamp: string; // Cuando se tomó la foto
+  type: 'before' | 'after' | 'shelf' | 'other'; // Asegúrate de que tu tabla `visit_photos` tenga esta columna
+  created_at?: string;
+}
+
+// Para la tabla `visit_locations`
+export interface StoredVisitLocation {
+  id?: string;
+  visit_id: string; // FK
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+  accuracy: number | null;
+  altitude: number | null;
+  cityName: string | null;
+  addressName: string | null;
+  state_name: string | null; // <-- ¡NUEVA PROPIEDAD AGREGADA AQUÍ! (Usando snake_case para la BD)
+  created_at?: string;
+}
+
+// Si tienes una tabla de Comercios (basado en tu definición)
 export interface Commerce {
   id: string;
   name: string;
   address: string;
-  phone?: string;
-  category?: string;
-  createdAt: string;
+  phone: string | null;
+  category: string | null;
+  created_at?: string;
+  user_id?: string | null;
 }
 
-// Definición para una "Presentación Chispa"
+// Si tienes una tabla de productos (Chispa) (basado en tu definición)
 export interface ChispaPresentation {
   id: string;
   name: string;
 }
 
-// Definición para la entrada de visita de una presentación específica (Chispa)
-export interface ProductVisitEntry {
-  productId: string;
-  productName: string;
-  currency: 'USD' | 'VES';
-  price: number | null;     // <--- ¡IMPORTANTE!
-  shelfStock: number | null; // <--- ¡IMPORTANTE!
-  generalStock: number | null; // <--- ¡IMPORTANTE!
-}
-
-// --- TIPOS PARA COMPETENCIA ---
-// Definición para un Producto de la Competencia
+// Definición de CompetitorProduct (se mantuvo una única definición ya que la estructura es la misma para UI y DB)
 export interface CompetitorProduct {
   id: string;
   name: string;
-}
-
-// Definición para la entrada de visita de un producto de la competencia
-export interface CompetitorVisitEntry {
-  productId: string;
-  productName: string;
-  price: number;
-  currency: 'USD' | 'VES';
-}
-// --- FIN TIPOS COMPETENCIA ---
-
-// --- NUEVOS TIPOS PARA FOTOS Y UBICACIÓN ---
-// Tipo para una entrada individual de foto
-export interface PhotoEntry {
-  uri: string;
-  timestamp: string;
-  base64: string; // Si guardas la base64
-}
-
-// Definición para los datos de ubicación
-export interface LocationEntry {
-  latitude: number;
-  longitude: number;
-  timestamp: string;
-  accuracy?: number | null;
-  altitude?: number | null;
-  cityName?: string;
-}
-
-// **NUEVA INTERFAZ**: Para el estado de cada sección de la visita
-export interface VisitSectionStatus {
-  name: 'chispa' | 'competitor' | 'photos_location' | 'info_general';
-  isComplete: boolean;
-  icon: string; // Por ejemplo, 'info-circle', 'cube-scan', 'account-group', 'camera'
-  color: string; // Por ejemplo, '#28a745', '#dc3545', '#ffc107', '#007bff'
-}
-
-// **NUEVA INTERFAZ**: Agrupa fotos y ubicación, como VisitContext la usa internamente
-export interface PhotoAndLocationEntry {
-  photos: string[]; // Arreglo de URIs de las fotos
-  location: LocationEntry | null;
-}
-// --- FIN NUEVOS TIPOS ---
-
-// Definición para una Visita completa a un Comercio
-export interface Visit {
-  id: string;
-  commerceId: string;
-  commerceName: string; // ¡Ahora requerido!
-  timestamp: string;
-  productEntries: ProductVisitEntry[];
-  competitorEntries: CompetitorVisitEntry[];
-  photos: string[]; // URIs de las fotos
-  location: LocationEntry | null;
-  sectionStatus: VisitSectionStatus[]; // Estado de las secciones de la visita
-  promoterId?: string; // ID del promotor (opcional)
-  photoBeforeUri?: string; // URI de la foto antes (opcional)
-  photoAfterUri?: string; // URI de la foto después (opcional)
 }

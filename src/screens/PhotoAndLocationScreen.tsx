@@ -10,55 +10,58 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
+  StatusBar,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
 import { useVisit } from '../context/VisitContext';
-import { Commerce } from '../types/data';
+import { Commerce, PhotoEntry } from '../types/data';
 import { getCommerces } from '../utils/storage';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
 import { Camera } from 'expo-camera';
-import MapView, { Marker } from 'react-native-maps';
-// Importa useIsFocused si aún no lo tienes (necesitas @react-navigation/native)
-import { useIsFocused } from '@react-navigation/native'; 
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
+// --- CONSTANTES DE COLORES ---
+const PRIMARY_BLUE_SOFT = '#E3F2FD';
+const DARK_BLUE = '#1565C0';
+const ACCENT_BLUE = '#2196F3';
+const SUCCESS_GREEN = '#66BB6A';
+const WARNING_ORANGE = '#FFCA28';
+const TEXT_DARK = '#424242';
+const TEXT_LIGHT = '#FFFFFF';
+const BORDER_COLOR = '#BBDEFB';
+const LIGHT_GRAY_BACKGROUND = '#F5F5F5';
+const ERROR_RED = '#DC3545';
+const PLACEHOLDER_GRAY = '#9E9E9E';
+const DISABLED_GRAY = '#EEEEEE';
+const DISABLED_TEXT_GRAY = '#B0B0B0';
+const PHOTO_SECTION_BLUE = '#007bff';
 
 type PhotoAndLocationScreenProps = StackScreenProps<AppStackParamList, 'PhotoAndLocation'>;
 
 const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigation }) => {
   const {
     currentCommerceId,
+    currentCommerceName,
     photos: contextPhotos,
-    updatePhotos,
-    location: contextLocation,
-    updateLocation,
+    addPhoto,
+    // Eliminado: location: contextLocation,
     markSectionComplete,
     resetVisit,
   } = useVisit();
 
-  const isFocused = useIsFocused(); // Hook para saber si la pantalla está enfocada
-
   const [commerce, setCommerce] = useState<Commerce | null>(null);
   const [isLoadingCommerce, setIsLoadingCommerce] = useState<boolean>(true);
-  const [isLocationLoading, setIsLocationLoading] = useState<boolean>(false);
 
-  const [photoBeforeUri, setPhotoBeforeUri] = useState<string | null>(contextPhotos[0] || null);
-  const [photoAfterUri, setPhotoAfterUri] = useState<string | null>(contextPhotos[1] || null);
+  const photoBeforeUri = contextPhotos.find(p => p.type === 'before')?.uri || null;
+  const photoAfterUri = contextPhotos.find(p => p.type === 'after')?.uri || null;
 
-  const [mapRegion, setMapRegion] = useState<{
-    latitude: number;
-    longitude: number;
-    latitudeDelta: number;
-    longitudeDelta: number;
-  } | null>(null);
 
   // Cargar detalles del comercio
   useEffect(() => {
     const fetchCommerceDetails = async () => {
       try {
         if (!currentCommerceId) {
-          console.warn('ID de comercio no proporcionado. Redirigiendo.');
           Alert.alert('Error de Sesión', 'No se pudo determinar el comercio actual. Por favor, reinicia la visita.', [
             { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
           ]);
@@ -69,7 +72,6 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
         if (foundCommerce) {
           setCommerce(foundCommerce);
         } else {
-          console.warn('Comercio no encontrado para ID:', currentCommerceId);
           Alert.alert('Error de Sesión', 'El comercio no se encontró. Por favor, selecciona un comercio nuevamente.', [
             { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
           ]);
@@ -87,100 +89,36 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
     fetchCommerceDetails();
   }, [currentCommerceId, navigation, resetVisit]);
 
-  // Sincronizar estados locales de fotos con el contexto cuando la pantalla se enfoca
-  useEffect(() => {
-    setPhotoBeforeUri(contextPhotos[0] || null);
-    setPhotoAfterUri(contextPhotos[1] || null);
-  }, [contextPhotos]);
-
-  // Establecer región del mapa si ya hay una ubicación en el contexto
-  useEffect(() => {
-    if (contextLocation) {
-      setMapRegion({
-        latitude: contextLocation.latitude,
-        longitude: contextLocation.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      });
-    }
-  }, [contextLocation]);
-
   // Solicitar permisos de cámara al montar
   useEffect(() => {
     (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
+      const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
+      if (cameraStatus !== 'granted') {
         Alert.alert('Permisos de cámara', 'Necesitamos permisos de cámara para tomar fotos.');
       }
     })();
   }, []);
 
-  // --- NUEVO LOGICA PARA OBTENER UBICACIÓN AUTOMÁTICAMENTE SOLO CUANDO LA PANTALLA ESTÁ ENFOCADA Y NO HAY UBICACIÓN PREVIA ---
-  const handleGetLocation = async () => {
-    setIsLocationLoading(true);
-    try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permisos de Ubicación', 'Necesitamos permisos para acceder a tu ubicación. La visita no podrá ser guardada completamente sin ellos.');
-        setIsLocationLoading(false);
-        return;
-      }
-
-      let currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-
-      const newLocation = {
-        latitude: currentLocation.coords.latitude,
-        longitude: currentLocation.coords.longitude,
-        timestamp: new Date().toISOString(),
-      };
-      updateLocation(newLocation); // Actualizar el contexto directamente
-      setMapRegion({
-        latitude: newLocation.latitude,
-        longitude: newLocation.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      });
-      Alert.alert('Ubicación Obtenida', 'La ubicación actual ha sido registrada.');
-
-      const hasBothPhotos = !!(photoBeforeUri && photoAfterUri);
-      if (hasBothPhotos) {
-        markSectionComplete('photos_location', true);
-      } else {
-        markSectionComplete('photos_location', false);
-      }
-    } catch (error) {
-      console.error('Error al obtener la ubicación:', error);
-      Alert.alert('Error', 'No se pudo obtener la ubicación. Asegúrate de tener el GPS activado y/o conexión a internet. Intenta de nuevo.');
-    } finally {
-      setIsLocationLoading(false);
-    }
-  };
-
-  // Este useEffect disparará la geolocalización cuando la pantalla se enfoca
-  // y solo si no hay una ubicación ya registrada en el contexto.
-  useEffect(() => {
-    if (isFocused && !contextLocation) {
-      handleGetLocation();
-    }
-  }, [isFocused, contextLocation]); // Depende de si la pantalla está enfocada y si ya hay ubicación
-
-
-  const handleBackToVisitItems = useCallback(() => {
+  // Lógica para marcar la sección como completa
+  const updateSectionStatus = useCallback(() => {
     const hasBothPhotos = !!(photoBeforeUri && photoAfterUri);
-    const hasLocation = !!contextLocation;
-    
-    markSectionComplete('photos_location', hasBothPhotos && hasLocation);
+    // Eliminado: const hasLocation = !!contextLocation;
 
+    // La sección 'photos_location' ahora solo depende de si ambas fotos han sido tomadas.
+    markSectionComplete('photos_location', hasBothPhotos);
+  }, [photoBeforeUri, photoAfterUri, markSectionComplete]); // Eliminado: contextLocation
+
+  // Lógica para volver a la pantalla de ítems de visita (Botón "Volver")
+  const handleBackToVisitItems = useCallback(() => {
+    updateSectionStatus(); // Actualiza el estado de la sección antes de salir
     if (currentCommerceId) {
-      navigation.navigate('VisitItems', { commerceId: currentCommerceId });
+      navigation.goBack();
     } else {
       Alert.alert('Error de Sesión', 'El comercio actual no está definido. Por favor, reinicia la visita.', [
         { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
       ]);
     }
-  }, [navigation, currentCommerceId, resetVisit, photoBeforeUri, photoAfterUri, contextLocation, markSectionComplete]);
+  }, [navigation, currentCommerceId, resetVisit, updateSectionStatus]);
 
   const handleTakePhoto = async (type: 'before' | 'after') => {
     try {
@@ -193,33 +131,16 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const newPhotoUri = result.assets[0].uri;
+        const timestamp = new Date().toISOString();
 
-        let updatedBeforeUri = photoBeforeUri;
-        let updatedAfterUri = photoAfterUri;
+        const newPhotoEntry: PhotoEntry = {
+          uri: newPhotoUri,
+          timestamp: timestamp,
+          type: type,
+        };
 
-        if (type === 'before') {
-          setPhotoBeforeUri(newPhotoUri);
-          updatedBeforeUri = newPhotoUri;
-        } else {
-          setPhotoAfterUri(newPhotoUri);
-          updatedAfterUri = newPhotoUri;
-        }
-
-        const photosToUpdate: string[] = [];
-        if (updatedBeforeUri) photosToUpdate.push(updatedBeforeUri);
-        if (updatedAfterUri) photosToUpdate.push(updatedAfterUri);
-        
-        updatePhotos(photosToUpdate);
-        
+        addPhoto(newPhotoEntry);
         Alert.alert('Foto tomada', `La foto de ${type === 'before' ? 'antes' : 'después'} ha sido registrada.`);
-
-        const hasBothPhotos = !!(updatedBeforeUri && updatedAfterUri);
-        const hasLocation = !!contextLocation;
-        if (hasBothPhotos && hasLocation) {
-            markSectionComplete('photos_location', true);
-        } else {
-            markSectionComplete('photos_location', false);
-        }
       }
     } catch (error) {
       console.error('Error al tomar la foto:', error);
@@ -227,45 +148,54 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
     }
   };
 
+  const handleSaveSectionAndNavigate = useCallback(() => {
+    updateSectionStatus(); // Forzar la actualización del estado de la sección
+    const hasBothPhotos = !!(photoBeforeUri && photoAfterUri);
+    // Eliminado: const hasLocation = !!contextLocation;
 
-  const handleSaveSectionAndNavigate = useCallback(async () => {
-    if (photoBeforeUri && photoAfterUri && contextLocation) {
-        markSectionComplete('photos_location', true); 
-        Alert.alert('Sección Guardada', 'Las fotos y la ubicación han sido registradas. Puedes continuar con la visita.');
-        navigation.navigate('VisitItems', { commerceId: currentCommerceId ?? undefined });
+    // La validación ahora solo es para las fotos.
+    if (hasBothPhotos) {
+      Alert.alert('Sección Guardada', 'Las fotos han sido registradas. Puedes continuar con la visita.');
+      if (currentCommerceId) {
+        navigation.goBack();
+      }
     } else {
-        Alert.alert('Progreso Incompleto', 'Aún faltan elementos para completar esta sección. Por favor, toma ambas fotos y registra la ubicación.');
-        markSectionComplete('photos_location', false);
+      let errorMessage = 'Aún faltan elementos para completar esta sección:\n';
+      if (!photoBeforeUri) errorMessage += '- Foto de Antes\n';
+      if (!photoAfterUri) errorMessage += '- Foto de Después\n';
+
+      Alert.alert('Progreso Incompleto', errorMessage.trim());
     }
-  }, [photoBeforeUri, photoAfterUri, contextLocation, markSectionComplete, navigation, currentCommerceId]);
+  }, [photoBeforeUri, photoAfterUri, updateSectionStatus, navigation, currentCommerceId]);
 
 
-  if (isLoadingCommerce) {
+  if (isLoadingCommerce || !currentCommerceId) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007bff" />
+        <ActivityIndicator size="large" color={DARK_BLUE} />
         <Text style={styles.loadingText}>Cargando información del comercio...</Text>
       </View>
     );
   }
 
-  const isSectionFullyComplete = (photoBeforeUri && photoAfterUri && contextLocation);
+  // La sección se considera completa si ambas fotos están presentes.
+  const isSectionFullyComplete = (!!photoBeforeUri && !!photoAfterUri);
 
   return (
     <ScrollView contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
+        <View style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0 }} />
         <TouchableOpacity style={styles.backButton} onPress={handleBackToVisitItems}>
-          <Text style={styles.backButtonText}>{'< Volver'}</Text>
+          <Icon name="arrow-left" size={28} color={TEXT_LIGHT} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Fotos y Ubicación para:</Text>
-        <Text style={styles.commerceName}>{commerce?.name || 'Comercio Desconocido'}</Text>
+        <Text style={styles.headerTitle}>Fotos para:</Text>
+        <Text style={styles.commerceName}>{currentCommerceName || 'Comercio Desconocido'}</Text>
         {commerce?.address && <Text style={styles.commerceAddress}>{commerce.address}</Text>}
       </View>
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Captura de Fotos</Text>
-        
-        {/* Sección de Foto Antes */}
+
         <Text style={styles.photoTypeTitle}>Foto Antes:</Text>
         <TouchableOpacity style={styles.button} onPress={() => handleTakePhoto('before')}>
           <Text style={styles.buttonText}>Tomar Foto (Antes)</Text>
@@ -278,7 +208,6 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
           )}
         </View>
 
-        {/* Sección de Foto Después */}
         <Text style={styles.photoTypeTitle}>Foto Después:</Text>
         <TouchableOpacity style={styles.button} onPress={() => handleTakePhoto('after')}>
           <Text style={styles.buttonText}>Tomar Foto (Después)</Text>
@@ -292,59 +221,45 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
         </View>
 
         {(!photoBeforeUri || !photoAfterUri) && (
-            <Text style={styles.warningText}>
-                Debes tomar **ambas fotos** (antes y después) para que esta sección se marque como completa.
-            </Text>
+          <Text style={styles.warningText}>
+            Debes tomar **ambas fotos** (antes y después) para que esta sección se marque como completa.
+          </Text>
         )}
       </View>
 
+      {/* Se elimina completamente la sección de Ubicación */}
+      {/*
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Registro de Ubicación</Text>
-        {/* Este botón ahora solo es un indicador, no se usa para iniciar la obtención */}
-        <View
-          style={[styles.button, styles.disabledButton]} // Un estilo para "deshabilitar" visualmente
-          // onPress={handleGetLocation} // Comentado o eliminado
-          // disabled={true} // Deshabilitado porque es automático
-        >
-          {isLocationLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>{contextLocation ? 'Ubicación Obtenida Automáticamente' : 'Obteniendo Ubicación Automáticamente...'}</Text>
+        <Text style={styles.sectionTitle}>Estado de Ubicación</Text>
+        <View style={styles.locationStatusContainer}>
+          <Icon
+            name={contextLocation ? "map-marker-check" : "map-marker-alert"}
+            size={40}
+            color={contextLocation ? SUCCESS_GREEN : WARNING_ORANGE}
+          />
+          <Text style={styles.locationStatusText}>
+            Ubicación: {contextLocation ? 'Capturada' : 'Pendiente'}
+          </Text>
+          {contextLocation && (
+            <Text style={styles.locationDetailsText}>
+              Lat: {contextLocation.latitude.toFixed(4)}, Lon: {contextLocation.longitude.toFixed(4)}
+            </Text>
+          )}
+          {!contextLocation && (
+            <Text style={styles.warningText}>
+              La ubicación se intenta capturar automáticamente al iniciar la visita. Asegúrate de tener permisos de ubicación.
+            </Text>
           )}
         </View>
-        {contextLocation ? (
-          <View style={styles.locationInfo}>
-            <Text style={styles.locationText}>Latitud: {contextLocation.latitude.toFixed(6)}</Text>
-            <Text style={styles.locationText}>Longitud: {contextLocation.longitude.toFixed(6)}</Text>
-            <Text style={styles.locationText}>Timestamp: {new Date(contextLocation.timestamp).toLocaleString()}</Text>
-            {mapRegion && (
-              <MapView
-                style={styles.map}
-                region={mapRegion}
-                showsUserLocation={true}
-              >
-                <Marker
-                  coordinate={{ latitude: contextLocation.latitude, longitude: contextLocation.longitude }}
-                  title="Ubicación de Visita"
-                />
-              </MapView>
-            )}
-          </View>
-        ) : (
-          <Text style={styles.placeholderText}>Esperando ubicación...</Text>
-        )}
       </View>
-
-      <Text style={styles.infoText}>
-        (Esta sección registra las fotos y la ubicación. La visita completa se guarda en la pantalla final de resumen.)
-      </Text>
+      */}
 
       <TouchableOpacity
         style={[styles.finalizeButton, !isSectionFullyComplete && styles.finalizeButtonDisabled, styles.centeredButton]}
         onPress={handleSaveSectionAndNavigate}
         disabled={!isSectionFullyComplete}
       >
-        <Text style={[styles.finalizeButtonText, styles.buttonTextCentered]}>Guardar Fotos y Ubicación</Text>
+        <Text style={[styles.finalizeButtonText, styles.buttonTextCentered]}>Guardar Fotos y Continuar</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -361,7 +276,7 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
 const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
-    backgroundColor: '#e9eff4',
+    backgroundColor: PRIMARY_BLUE_SOFT,
     paddingHorizontal: 20,
     paddingTop: 40,
     paddingBottom: 20,
@@ -370,15 +285,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#e9eff4',
+    backgroundColor: PRIMARY_BLUE_SOFT,
   },
   loadingText: {
     fontSize: 18,
-    color: '#555',
+    color: TEXT_DARK,
     marginTop: 10,
   },
   header: {
-    backgroundColor: '#28a745', // Verde para Fotos y Ubicación
+    backgroundColor: PHOTO_SECTION_BLUE,
     padding: 15,
     borderRadius: 10,
     marginBottom: 20,
@@ -393,35 +308,30 @@ const styles = StyleSheet.create({
   backButton: {
     position: 'absolute',
     left: 10,
-    top: 15,
+    top: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 10 : 15,
     padding: 5,
-  },
-  backButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#fff',
+    color: TEXT_LIGHT,
     marginTop: 5,
   },
   commerceName: {
     fontSize: 26,
     fontWeight: 'bold',
-    color: '#fff',
+    color: TEXT_LIGHT,
     marginTop: 5,
     textAlign: 'center',
   },
   commerceAddress: {
     fontSize: 16,
-    color: '#e0e0e0',
+    color: BORDER_COLOR,
     marginTop: 5,
     textAlign: 'center',
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: LIGHT_GRAY_BACKGROUND,
     borderRadius: 15,
     padding: 20,
     shadowColor: '#000',
@@ -434,30 +344,30 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
+    color: DARK_BLUE,
     marginBottom: 15,
     textAlign: 'center',
   },
   photoTypeTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#555',
+    color: TEXT_DARK,
     marginTop: 10,
     marginBottom: 5,
     textAlign: 'left',
     width: '100%',
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: BORDER_COLOR,
     paddingBottom: 5,
   },
   button: {
-    backgroundColor: '#007bff',
+    backgroundColor: ACCENT_BLUE,
     paddingVertical: 15,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
-    shadowColor: 'rgba(0, 123, 255, 0.4)',
+    shadowColor: 'rgba(0,0,0, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
@@ -465,13 +375,9 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   buttonText: {
-    color: '#fff',
+    color: TEXT_LIGHT,
     fontSize: 18,
     fontWeight: 'bold',
-  },
-  // Nuevo estilo para simular un botón deshabilitado visualmente
-  disabledButton: {
-    backgroundColor: '#a0c7e8', // Un color más claro para indicar que es automático
   },
   photosContainer: {
     flexDirection: 'row',
@@ -481,10 +387,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     minHeight: 120,
     alignItems: 'center',
-    backgroundColor: '#f8f8f8',
+    backgroundColor: TEXT_LIGHT,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: BORDER_COLOR,
     padding: 10,
   },
   thumbnail: {
@@ -493,92 +399,70 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     margin: 5,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: BORDER_COLOR,
   },
   placeholderText: {
     fontSize: 16,
-    color: '#666',
+    color: PLACEHOLDER_GRAY,
     textAlign: 'center',
     paddingVertical: 10,
     fontStyle: 'italic',
   },
   warningText: {
     fontSize: 15,
-    color: '#dc3545',
+    color: ERROR_RED,
     textAlign: 'center',
     marginTop: 10,
     fontStyle: 'italic',
     fontWeight: '600',
   },
-  locationInfo: {
-    marginTop: 15,
-    alignItems: 'center',
-    padding: 10,
-    backgroundColor: '#f0faff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#a0d9ff',
-  },
-  locationText: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 5,
-  },
-  map: {
-    width: '100%',
-    height: 200,
-    borderRadius: 10,
-    marginTop: 15,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
   infoText: {
     fontSize: 13,
-    color: '#888',
+    color: TEXT_DARK,
     textAlign: 'center',
     marginTop: 15,
     fontStyle: 'italic',
   },
   finalizeButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: SUCCESS_GREEN,
     paddingVertical: 18,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 20,
     marginBottom: 10,
-    shadowColor: 'rgba(40, 167, 69, 0.4)',
+    shadowColor: 'rgba(0,0,0, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
     elevation: 5,
   },
   finalizeButtonDisabled: {
-    backgroundColor: '#90ee90',
+    backgroundColor: DISABLED_GRAY,
     shadowOpacity: 0.2,
     elevation: 2,
   },
   finalizeButtonText: {
-    color: '#fff',
+    color: TEXT_LIGHT,
     fontSize: 20,
     fontWeight: 'bold',
   },
   goToItemsButton: {
-    backgroundColor: '#6c757d',
+    backgroundColor: DARK_BLUE,
     paddingVertical: 15,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
     marginBottom: 20,
-    shadowColor: 'rgba(108, 117, 125, 0.4)',
+    shadowColor: 'rgba(0,0,0, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
     elevation: 5,
   },
   goToItemsButtonText: {
-    color: '#fff',
+    color: TEXT_LIGHT,
     fontSize: 18,
     fontWeight: 'bold',
   },
@@ -591,6 +475,7 @@ const styles = StyleSheet.create({
   buttonTextCentered: {
     textAlign: 'center',
   },
+  // Eliminados: locationStatusContainer, locationStatusText, locationDetailsText
 });
 
 export default PhotoAndLocationScreen;

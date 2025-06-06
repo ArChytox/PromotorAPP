@@ -1,0 +1,7 @@
+Columna,Tipo de Dato (Supabase),Propiedades / Notas
+id,uuid,"Primary Key, gen_random_uuid() (Default Value)"
+name,text,NOT NULL (no puede estar vacío)
+address,text,NOT NULL
+phone,text,NULLABLE
+category,text,NULLABLE
+created_at,timestamp with time zone,Default Value: now()

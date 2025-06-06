@@ -8,45 +8,154 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Platform, // Importar Platform para detectar el SO
-  StatusBar, // Importar StatusBar
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
-import { Visit, Commerce } from '../types/data';
-import { getVisits, getCommerces } from '../utils/storage';
+
+// Importa los tipos directamente de Supabase (Stored...) y Commerce
+import {
+  StoredVisit,
+  StoredVisitLocation,
+  StoredVisitPhoto,
+  StoredProductVisit,
+  StoredCompetitorProductVisit,
+  Commerce // Para los comercios
+} from '../types/data'; // Asegúrate de que estos tipos estén en data.ts y coincidan con tu DB
+
+// Importa la instancia de Supabase
+import { supabase } from '../services/supabase';
+
+// --- CONSTANTES DE COLORES (NUEVAS: Extraídas de StyleSheet para consistencia) ---
+const PRIMARY_BACKGROUND = '#e9eff4';
+const HEADER_BLUE = '#007bff';
+const TEXT_DARK = '#333';
+const TEXT_MEDIUM = '#555';
+const TEXT_LIGHT = '#fff';
+const SHADOW_COLOR = '#000';
+const SUCCESS_GREEN = '#28a745';
+const INFO_GRAY = '#888';
+const CARD_BACKGROUND = '#fff';
+const BORDER_GRAY = '#e0e0e0';
+const SUBTLE_TEXT_GRAY = '#666';
+const DATETIME_TEXT_GRAY = '#888';
+const LOCATION_TEXT_GRAY = '#555';
+
+// Tipo de visita para esta pantalla, que agrupa toda la información relacionada
+// Necesitamos una estructura que refleje lo que queremos mostrar, combinando los datos de Supabase
+interface DisplayVisit {
+  id: string;
+  commerce_id: string;
+  commerce_name: string;
+  timestamp: string; // Fecha de inicio de visita
+  end_timestamp: string;
+  promoter_id: string | null;
+  notes: string | null;
+  is_synced: boolean;
+  section_status: any; // O el tipo VisitSectionState si se mapea
+  // Información relacionada, obtenida de las tablas unidas
+  location?: StoredVisitLocation;
+  photos: StoredVisitPhoto[];
+  product_visits: StoredProductVisit[];
+  competitor_product_visits: StoredCompetitorProductVisit[];
+  // Información del comercio (obtenida de la tabla 'commerces')
+  commerce_address?: string; // Para mostrar la dirección del comercio
+}
 
 type MyVisitsScreenProps = StackScreenProps<AppStackParamList, 'MyVisits'>;
 
 const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
-  const [visits, setVisits] = useState<Visit[]>([]);
+  const [visits, setVisits] = useState<DisplayVisit[]>([]);
   const [commercesMap, setCommercesMap] = useState<Map<string, Commerce>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchVisitsAndCommerces = useCallback(async () => {
     setIsLoading(true);
     try {
-      const storedVisits = await getVisits();
-      const storedCommerces = await getCommerces();
+      // 1. Cargar todos los comercios primero para tener el mapa de nombres/direcciones
+      const { data: commercesData, error: commercesError } = await supabase
+        .from('commerces') // Asegúrate de que 'commerces' sea el nombre correcto de tu tabla de comercios
+        .select('*');
+
+      if (commercesError) {
+        console.error('Error fetching commerces:', commercesError.message);
+        throw new Error('No se pudieron cargar los comercios.');
+      }
 
       const map = new Map<string, Commerce>();
-      storedCommerces.forEach(c => map.set(c.id, c));
+      commercesData.forEach(c => map.set(c.id, c));
       setCommercesMap(map);
 
-      setVisits(storedVisits.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+      // 2. Cargar las visitas con sus relaciones
+      // Seleccionamos la visita principal y traemos los datos de las tablas relacionadas
+      const { data: visitsData, error: visitsError } = await supabase
+        .from('visits')
+        .select(`
+          *,
+          visit_locations(*),
+          visit_photos(*),
+          product_visits(*),
+          competitor_product_visits(*)
+        `)
+        .order('timestamp', { ascending: false }); // Ordenar por fecha más reciente primero
 
-    } catch (error) {
-      console.error('Error loading visits or commerces:', error);
-      Alert.alert('Error', 'No se pudieron cargar las visitas o comercios.');
+      if (visitsError) {
+        console.error('Error fetching visits:', visitsError.message);
+        throw new Error('No se pudieron cargar las visitas.');
+      }
+
+      // Mapear los datos para adaptarlos al tipo DisplayVisit y añadir la dirección del comercio
+      const formattedVisits: DisplayVisit[] = visitsData.map(visit => {
+        const commerceDetails = map.get(visit.commerce_id);
+        
+        // Supabase devuelve las relaciones como arrays, incluso si solo hay una.
+        // Para location, si esperas una sola, toma la primera.
+        const locationEntry = visit.visit_locations && visit.visit_locations.length > 0
+          ? visit.visit_locations[0]
+          : undefined;
+
+        // photoBeforeUri y photoAfterUri no existen directamente en la DB.
+        // Los inferimos de la lista de fotos.
+        const hasPhotoBefore = visit.visit_photos?.some((photo: StoredVisitPhoto) => photo.type === 'before');
+        const hasPhotoAfter = visit.visit_photos?.some((photo: StoredVisitPhoto) => photo.type === 'after');
+
+        return {
+          id: visit.id,
+          commerce_id: visit.commerce_id,
+          commerce_name: visit.commerce_name,
+          timestamp: visit.timestamp,
+          end_timestamp: visit.end_timestamp,
+          promoter_id: visit.promoter_id,
+          notes: visit.notes,
+          is_synced: visit.is_synced,
+          section_status: visit.section_status, // Mantenemos el JSONB tal cual
+          location: locationEntry, // La primera ubicación (si existe)
+          photos: visit.visit_photos || [],
+          product_visits: visit.product_visits || [],
+          competitor_product_visits: visit.competitor_product_visits || [],
+          commerce_address: commerceDetails?.address || null, // Añadimos la dirección del comercio
+          _hasPhotoBefore: hasPhotoBefore, // Campos auxiliares para renderizado
+          _hasPhotoAfter: hasPhotoAfter,
+        };
+      });
+
+      setVisits(formattedVisits);
+
+    } catch (error: any) {
+      console.error('Error loading visits or commerces:', error.message || error);
+      Alert.alert('Error', `No se pudieron cargar las visitas o comercios: ${error.message || 'Error desconocido'}`);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    // Carga inicial y recarga al enfocar la pantalla
     fetchVisitsAndCommerces();
 
     const unsubscribe = navigation.addListener('focus', () => {
+      console.log('DEBUG: Screen focused, refetching visits.');
       fetchVisitsAndCommerces();
     });
 
@@ -54,35 +163,42 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
   }, [fetchVisitsAndCommerces, navigation]);
 
 
-  const renderVisitItem = ({ item }: { item: Visit }) => {
-    const commerce = commercesMap.get(item.commerceId);
+  const renderVisitItem = ({ item }: { item: DisplayVisit }) => {
     const visitDate = new Date(item.timestamp);
 
     return (
       <View style={styles.visitItem}>
         <Text style={styles.visitCommerceName}>
-          Visita a: **{commerce?.name || `Comercio ID: ${item.commerceId}`}**
+          Visita a: **{item.commerce_name}**
         </Text>
-        {commerce?.address && <Text style={styles.visitCommerceAddress}>{commerce.address}</Text>}
+        {item.commerce_address && <Text style={styles.visitCommerceAddress}>{item.commerce_address}</Text>}
         <Text style={styles.visitDateTime}>
           Fecha: {visitDate.toLocaleDateString()} Hora: {visitDate.toLocaleTimeString()}
         </Text>
         {item.location && (
           <Text style={styles.visitLocation}>
-            Ubicación: {item.location.cityName || 'Desconocida'} ({item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)})
+            Ubicación: {item.location.city_name || 'Desconocida'} ({item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)})
           </Text>
         )}
         <Text style={styles.visitSummary}>
-          Productos Chispa registrados: {item.productEntries.length}
+          Productos Chispa registrados: {item.product_visits.length}
         </Text>
         <Text style={styles.visitSummary}>
-          Productos Competencia registrados: {item.competitorEntries.length}
+          Productos Competencia registrados: {item.competitor_product_visits.length}
         </Text>
-        {item.photoBeforeUri && (
+        {/* Usar los campos auxiliares para las fotos */}
+        {item.photos?.some(p => p.type === 'before') && ( // Si existe una foto con type 'before'
             <Text style={styles.photoIndicator}>✔ Foto ANTES</Text>
         )}
-        {item.photoAfterUri && (
-            <Text style={styles.photoIndicator}>✔ Foto DESPUÉS/</Text>        )}
+        {item.photos?.some(p => p.type === 'after') && ( // Si existe una foto con type 'after'
+            <Text style={styles.photoIndicator}>✔ Foto DESPUÉS</Text> 
+        )}
+        {item.photos?.some(p => p.type === 'shelf') && (
+            <Text style={styles.photoIndicator}>✔ Foto EXHIBIDOR</Text>
+        )}
+        {item.photos?.some(p => p.type === 'other') && (
+            <Text style={styles.photoIndicator}>✔ Otra FOTO</Text>
+        )}
       </View>
     );
   };
@@ -90,7 +206,7 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007bff" />
+        <ActivityIndicator size="large" color={HEADER_BLUE} />
         <Text style={styles.loadingText}>Cargando visitas...</Text>
       </View>
     );
@@ -98,7 +214,9 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* Encabezado de la pantalla con el título y el botón "Ir a Comercios" */}
+      {/* Ajustar la StatusBar para iOS */}
+      {Platform.OS === 'ios' && <StatusBar barStyle="light-content" />}
+      
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.goToCommercesButton}
@@ -109,7 +227,6 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
         <Text style={styles.headerTitle}>Mis Visitas</Text>
       </View>
 
-      {/* Mensaje si no hay visitas o la lista de visitas */}
       {visits.length === 0 ? (
         <View style={styles.noVisitsContainer}>
           <Text style={styles.noVisitsText}>Aún no hay visitas registradas.</Text>
@@ -135,31 +252,30 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#e9eff4',
+    backgroundColor: PRIMARY_BACKGROUND,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#e9eff4',
+    backgroundColor: PRIMARY_BACKGROUND,
   },
   loadingText: {
     marginTop: 10,
     fontSize: 18,
-    color: '#555',
+    color: TEXT_MEDIUM,
   },
   header: {
-    backgroundColor: '#007bff',
-    // Ajuste de paddingTop para considerar la barra de estado
+    backgroundColor: HEADER_BLUE,
     paddingTop: Platform.OS === 'android' ? ((StatusBar.currentHeight || 0) + 10) : 50,
     paddingBottom: 20,
     paddingHorizontal: 15,
-    flexDirection: 'row', // Para que el botón y el título estén en la misma línea
-    alignItems: 'center', // Alinea verticalmente
-    justifyContent: 'space-between', // Distribuye los elementos (botón a izquierda, título a centro-derecha)
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomLeftRadius: 15,
     borderBottomRightRadius: 15,
-    shadowColor: '#000',
+    shadowColor: SHADOW_COLOR,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 5,
@@ -168,27 +284,25 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#fff',
-    flex: 1, // Para que el título ocupe el espacio restante y se pueda centrar
-    textAlign: 'center', // Centra el título
-    // Eliminar el marginLeft que lo empujaba
-    marginRight: 60, // Añadir un margen a la derecha para equilibrar el botón de la izquierda si el título no es muy largo
+    color: TEXT_LIGHT,
+    flex: 1,
+    textAlign: 'center',
+    marginRight: 60,
   },
   goToCommercesButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: SUCCESS_GREEN,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    shadowColor: '#000',
+    shadowColor: SHADOW_COLOR,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 3,
-    // Aseguramos que esté a la izquierda sin afectar el centrado del título
-    marginRight: 10, // Pequeño margen a la derecha del botón
+    marginRight: 10,
   },
   goToCommercesButtonText: {
-    color: '#fff',
+    color: TEXT_LIGHT,
     fontSize: 15,
     fontWeight: 'bold',
   },
@@ -201,16 +315,16 @@ const styles = StyleSheet.create({
   noVisitsText: {
     textAlign: 'center',
     fontSize: 20,
-    color: '#888',
+    color: INFO_GRAY,
     marginBottom: 20,
   },
   goToCommercesButtonNoVisits: {
-    backgroundColor: '#007bff',
+    backgroundColor: HEADER_BLUE,
     paddingVertical: 15,
     paddingHorizontal: 25,
     borderRadius: 10,
     marginTop: 20,
-    shadowColor: '#000',
+    shadowColor: SHADOW_COLOR,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -220,11 +334,11 @@ const styles = StyleSheet.create({
     padding: 15,
   },
   visitItem: {
-    backgroundColor: '#fff',
+    backgroundColor: CARD_BACKGROUND,
     borderRadius: 10,
     padding: 15,
     marginBottom: 10,
-    shadowColor: '#000',
+    shadowColor: SHADOW_COLOR,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
@@ -233,33 +347,33 @@ const styles = StyleSheet.create({
   visitCommerceName: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: TEXT_DARK,
     marginBottom: 5,
   },
   visitCommerceAddress: {
     fontSize: 14,
-    color: '#666',
+    color: SUBTLE_TEXT_GRAY,
     marginBottom: 5,
   },
   visitDateTime: {
     fontSize: 13,
-    color: '#888',
+    color: DATETIME_TEXT_GRAY,
     marginBottom: 5,
     fontStyle: 'italic',
   },
   visitLocation: {
     fontSize: 14,
-    color: '#555',
+    color: LOCATION_TEXT_GRAY,
     marginBottom: 5,
   },
   visitSummary: {
     fontSize: 14,
-    color: '#444',
+    color: TEXT_DARK,
     marginTop: 3,
   },
   photoIndicator: {
     fontSize: 12,
-    color: '#28a745',
+    color: SUCCESS_GREEN,
     marginTop: 2,
     fontWeight: '600',
   }

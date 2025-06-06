@@ -20,13 +20,19 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.archyss.PromotorAPP"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-
-    ]
+      "expo-maps"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c9722207-9e97-4e83-b94d-aeb508031c83"
+      }
+    }
   }
 }

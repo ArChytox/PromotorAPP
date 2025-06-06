@@ -1,33 +1,41 @@
-// src/screens/Auth/LoginScreen.tsx
+// PromotorAPP/src/screens/Auth/LoginScreen.tsx
 import React, { useState } from 'react';
 import {
   View,
   Text,
   TextInput,
-  Button,
+  Button, // Aunque usaremos TouchableOpacity para el botón principal, lo mantengo por si lo usas en otro lado
   StyleSheet,
   Alert,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image, // Importamos Image para el logo
+  Image,
 } from 'react-native';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext'; // Asegúrate que esta ruta es correcta
+import { StackNavigationProp } from '@react-navigation/stack';
+import { AuthStackParamList } from '../../navigation/AuthNavigator'; // Importa AuthStackParamList desde la navegación
 
-const LoginScreen = () => {
-  const [username, setUsername] = useState<string>('');
+// Define el tipo para las props de navegación, importante para TypeScript
+type LoginScreenNavigationProp = StackNavigationProp<AuthStackParamList, 'Login'>;
+
+interface LoginScreenProps {
+  navigation: LoginScreenNavigationProp;
+}
+
+// Asegúrate de pasar 'navigation' como prop
+const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
+  const [email, setEmail] = useState<string>(''); // Cambiado de 'username' a 'email'
   const [password, setPassword] = useState<string>('');
   const { login, isLoading } = useAuth();
 
   const handleLogin = async () => {
-    if (!username || !password) {
-      Alert.alert('Error de inicio de sesión', 'Por favor, ingresa tu usuario y contraseña.');
+    if (!email || !password) { // Usamos email en lugar de username
+      Alert.alert('Error de inicio de sesión', 'Por favor, ingresa tu email y contraseña.');
       return;
     }
-
-    // El mensaje de error ya se muestra desde AuthContext.tsx si falla
-    await login(username, password);
+    await login(email, password); // Llama a login con email
   };
 
   return (
@@ -47,14 +55,14 @@ const LoginScreen = () => {
 
           <TextInput
             style={styles.input}
-            placeholder="Usuario"
+            placeholder="Email" // Cambiado a Email
             placeholderTextColor="#999"
-            value={username}
-            onChangeText={setUsername}
+            value={email} // Usamos email
+            onChangeText={setEmail} // Usamos setEmail
             autoCapitalize="none"
-            keyboardType="email-address"
+            keyboardType="email-address" // Importante para teclados de email
             returnKeyType="next"
-            onSubmitEditing={() => console.log('Focus next input')} // Implementar si tienes múltiples inputs
+            // onSubmitEditing={() => console.log('Focus next input')} // Si tienes múltiples inputs
           />
 
           <TextInput
@@ -78,6 +86,15 @@ const LoginScreen = () => {
             </Text>
           </TouchableOpacity>
 
+          {/* BOTÓN PARA CREAR UNA NUEVA CUENTA */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Register')} // Navega a la pantalla 'Register'
+            style={styles.createAccountButton} // Nuevo estilo para diferenciar
+            disabled={isLoading}
+          >
+            <Text style={styles.createAccountButtonText}>Crear una nueva cuenta</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.forgotPasswordButton}>
             <Text style={styles.forgotPasswordText}>¿Olvidaste tu contraseña?</Text>
           </TouchableOpacity>
@@ -90,24 +107,24 @@ const LoginScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#3498db', // Un azul más vibrante para el fondo
+    backgroundColor: '#3498db',
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 40, // Espacio superior e inferior para evitar que el contenido toque los bordes
+    paddingVertical: 40,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40, // Espacio entre el header y el loginBox
+    marginBottom: 40,
   },
   logo: {
     width: 120,
     height: 120,
     marginBottom: 15,
-    borderRadius: 60, // Si es un logo circular
-    backgroundColor: '#fff', // Fondo blanco para el logo si no hay imagen
+    borderRadius: 60,
+    backgroundColor: '#fff',
   },
   appName: {
     fontSize: 32,
@@ -118,10 +135,10 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   loginBox: {
-    width: '90%', // Más ancho
-    maxWidth: 450, // Más ancho en pantallas grandes
+    width: '90%',
+    maxWidth: 450,
     backgroundColor: '#fff',
-    borderRadius: 15, // Bordes más redondeados
+    borderRadius: 15,
     padding: 30,
     alignItems: 'center',
     shadowColor: '#000',
@@ -138,15 +155,15 @@ const styles = StyleSheet.create({
   },
   input: {
     width: '100%',
-    height: 55, // Más alto
+    height: 55,
     borderColor: '#e0e0e0',
     borderWidth: 1,
-    borderRadius: 10, // Bordes más redondeados
+    borderRadius: 10,
     paddingHorizontal: 18,
     marginBottom: 20,
     fontSize: 17,
     color: '#333',
-    backgroundColor: '#f5f5f5', // Un gris claro para el fondo
+    backgroundColor: '#f5f5f5',
     shadowColor: 'rgba(0,0,0,0.05)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -155,20 +172,20 @@ const styles = StyleSheet.create({
   },
   button: {
     width: '100%',
-    height: 55, // Más alto
-    backgroundColor: '#28a745', // Un verde vibrante
+    height: 55,
+    backgroundColor: '#28a745',
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 15,
-    shadowColor: 'rgba(40, 167, 69, 0.4)', // Sombra para el botón
+    shadowColor: 'rgba(40, 167, 69, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
     elevation: 5,
   },
   buttonDisabled: {
-    backgroundColor: '#90ee90', // Un verde más claro cuando está deshabilitado
+    backgroundColor: '#90ee90',
     shadowOpacity: 0.2,
     elevation: 2,
   },
@@ -176,6 +193,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 19,
     fontWeight: 'bold',
+  },
+  createAccountButton: { // Nuevo estilo para el botón de crear cuenta
+    marginTop: 5, // Espacio entre el botón de login y este
+    marginBottom: 10, // Espacio antes del botón de olvidar contraseña
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    // backgroundColor: '#0e43f1', // Podrías darle un fondo diferente o dejarlo transparente
+  },
+  createAccountButtonText: {
+    color: '#007bff', // Un azul estándar para enlaces
+    fontSize: 15,
+    textDecorationLine: 'underline',
   },
   forgotPasswordButton: {
     marginTop: 10,

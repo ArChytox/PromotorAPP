@@ -1,4 +1,3 @@
-// src/navigation/AppNavigator.tsx
 import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 
@@ -12,20 +11,22 @@ import VisitItemsScreen from '../screens/VisitItemsScreen';
 import VisitScreen from '../screens/VisitScreen'; // Asumo que VisitScreen es para 'Productos Chispa'
 import CompetitorScreen from '../screens/CompetitorScreen';
 import PhotoAndLocationScreen from '../screens/PhotoAndLocationScreen';
+import VisitSummaryScreen from '../screens/VisitSummaryScreen'; // <--- NUEVA IMPORTACIÓN
 
 // Define los parámetros esperados para cada ruta.
 export type AppStackParamList = {
     CommerceList: undefined;
     // Permite que commerceId sea opcional para "añadir", o que el objeto params sea undefined
-    AddEditCommerce: { commerceId?: string } | undefined; 
+    AddEditCommerce: { commerceId?: string } | undefined;
     MyVisits: undefined;
 
-    // --- Pantallas para el Flujo de Visitas (commerceId ahora es REQUERIDO) ---
+    // --- Pantallas para el Flujo de Visitas (commerceId ahora es REQUERIDO en VisitItems) ---
     // Esto asume que una visita siempre se inicia para un comercio específico
-    VisitItems: { commerceId: string }; 
+    VisitItems: { commerceId: string; commerceName: string }; // <--- Asegúrate de que commerceName también esté aquí si lo usas
     Visit: { commerceId: string };
-    Competitor: { commerceId: string }; 
-    PhotoAndLocation: { commerceId: string }; 
+    Competitor: { commerceId: string };
+    PhotoAndLocation: { commerceId: string };
+    VisitSummary: undefined; // <--- NUEVA PANTALLA: No necesita parámetros específicos de la ruta
 };
 
 const Stack = createStackNavigator<AppStackParamList>();
@@ -44,7 +45,7 @@ const AppNavigator = () => {
                 options={{ title: 'Items de Visita' }}
             />
             <Stack.Screen
-                name="Visit" 
+                name="Visit"
                 component={VisitScreen}
                 options={{ title: 'Productos Chispa' }}
             />
@@ -57,6 +58,11 @@ const AppNavigator = () => {
                 name="PhotoAndLocation"
                 component={PhotoAndLocationScreen}
                 options={{ title: 'Fotos y Ubicación' }}
+            />
+            <Stack.Screen
+                name="VisitSummary" // <--- NUEVA PANTALLA AÑADIDA
+                component={VisitSummaryScreen}
+                options={{ title: 'Resumen de Visita' }}
             />
         </Stack.Navigator>
     );

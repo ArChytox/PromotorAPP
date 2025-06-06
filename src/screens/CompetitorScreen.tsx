@@ -1,4 +1,3 @@
-// src/screens/CompetitorScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -15,74 +14,34 @@ import {
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
-import { Commerce, CompetitorProduct, CompetitorVisitEntry, ProductVisitEntry } from '../types/data';
+import { Commerce, CompetitorProduct, CompetitorVisitEntry } from '../types/data';
 import { getCommerces } from '../utils/storage';
 import { Picker } from '@react-native-picker/picker';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import { useVisit } from '../context/VisitContext';
 import { useIsFocused } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons'; // Asegúrate de tener este paquete instalado: npm install react-native-vector-icons
+import { supabase } from '../services/supabase';
 
-// Lista de productos de la competencia (Generados con IDs únicos)
-const COMPETITOR_PRODUCTS: CompetitorProduct[] = [
-  { id: uuidv4(), name: 'AGUA BLANCA TIPO 1 kg' },
-  { id: uuidv4(), name: 'ALVARIGUA TIPO 1 900g' },
-  { id: uuidv4(), name: 'AMANECER TIPO 1 800g' },
-  { id: uuidv4(), name: 'ARAURIGUA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'CANTA CLARO TIPO 1 1kg' },
-  { id: uuidv4(), name: 'CHAIRA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'DIANA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'DON PACO TIPO 1 900g' },
-  { id: uuidv4(), name: 'DOÑA ALICIA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'DOÑA EMILIA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'EL TITAN TIPO 1 1kg' },
-  { id: uuidv4(), name: 'ELITE PREMIUM 1kg' },
-  { id: uuidv4(), name: 'ELITE CLÁSICO 900g' },
-  { id: uuidv4(), name: 'EMI TIPO 1 900g' },
-  { id: uuidv4(), name: 'ESPIGA DORADA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'FAVORITO TIPO 1 900g' },
-  { id: uuidv4(), name: 'GLORIA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'GLORIA CLÁSICO 1kg' },
-  { id: uuidv4(), name: 'INNOVA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'KIARA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'LA CONQUISTA CLÁSICO 1kg' },
-  { id: uuidv4(), name: 'LA ESPERANZA TIPO 1 900g' },
-  { id: uuidv4(), name: 'LA LUCHA TIPO 1 kg' },
-  { id: uuidv4(), name: 'LA MOLIENDA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'LLANO VERDE TIPO 1 1kg' },
-  { id: uuidv4(), name: 'LUISANA TIPO 1 900g' },
-  { id: uuidv4(), name: 'LUISANA PREMIUM 1kg' },
-  { id: uuidv4(), name: 'MARY SUPERIOR 1kg' },
-  { id: uuidv4(), name: 'MARY TRADICIONAL 900g' },
-  { id: uuidv4(), name: 'MISIFU TIPO 1 1kg' },
-  { id: uuidv4(), name: 'MONICA TIPO 1 900g' },
-  { id: uuidv4(), name: 'PANTERA TIPO 1 1kg' },
-  { id: uuidv4(), name: 'PRIMOR TRADICIONAL 1kg' },
-  { id: uuidv4(), name: 'SABROZON TIPO 1 1kg' },
-  { id: uuidv4(), name: 'SANTONI PREMIUM 900g' },
-  { id: uuidv4(), name: 'SANTONI EXCELENTE 800g' },
-  { id: uuidv4(), name: 'ZENI TIPO 1 900g' },
-  { id: uuidv4(), name: 'KIANA TIPO 1 900g' },
-  { id: uuidv4(), name: 'MASIA PREMIUM 1kg' },
-  { id: uuidv4(), name: 'AGUA BLANCA DIAMANTE 900g' },
-  { id: uuidv4(), name: 'DOÑA ALICIA PLATINUM 1kg' },
-  { id: uuidv4(), name: 'MARY ESMERALDA 1kg' },
-  { id: uuidv4(), name: 'MARY DORADO 1kg' },
-  { id: uuidv4(), name: 'MARY BIO 1kg' },
-  { id: uuidv4(), name: 'PRIMOR CLÁSICO SUPERIOR 1kg' },
-  { id: uuidv4(), name: 'PRIMOR PERLADO 900g' },
-  { id: uuidv4(), name: 'SANTONI ZAFIRO 1kg' },
-  { id: uuidv4(), name: 'MASIA CLÁSICA 1kg' },
-  { id: uuidv4(), name: 'LUISANA SUPREMO 1kg' },
-  { id: uuidv4(), name: 'ELITE SELECTO 1kg' },
-];
+// --- CONSTANTES DE COLORES ---
+const PRIMARY_BLUE_SOFT = '#E3F2FD';
+const DARK_BLUE = '#1565C0';
+const ACCENT_BLUE = '#2196F3';
+const SUCCESS_GREEN = '#66BB6A';
+const WARNING_ORANGE = '#FFCA28';
+const TEXT_DARK = '#424242';
+const TEXT_LIGHT = '#FFFFFF';
+const BORDER_COLOR = '#BBDEFB';
+const LIGHT_GRAY_BACKGROUND = '#F5F5F5';
+const ERROR_RED = '#DC3545';
+const PLACEHOLDER_GRAY = '#9E9E9E';
 
 type CompetitorScreenProps = StackScreenProps<AppStackParamList, 'Competitor'>;
 
 const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
   const {
     currentCommerceId,
-    productEntries, // <--- Importante: `productEntries` viene del contexto aquí.
     competitorEntries: initialCompetitorEntries,
     updateCompetitorEntries,
     markSectionComplete,
@@ -93,43 +52,49 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
 
   const [commerce, setCommerce] = useState<Commerce | null>(null);
   const [isLoadingCommerce, setIsLoadingCommerce] = useState<boolean>(true);
+  const [competitorProducts, setCompetitorProducts] = useState<CompetitorProduct[]>([]);
+  const [isLoadingCompetitorProducts, setIsLoadingCompetitorProducts] = useState<boolean>(true);
+
+  const [showOverlayLoading, setShowOverlayLoading] = useState<boolean>(true);
+
   const [selectedCompetitorProductId, setSelectedCompetitorProductId] = useState<string | null>(null);
   const [competitorPrice, setCompetitorPrice] = useState<string>('');
   const [selectedCompetitorCurrency, setSelectedCompetitorCurrency] = useState<'USD' | 'VES'>('USD');
   const [collectedCompetitorEntries, setCollectedCompetitorEntries] = useState<CompetitorVisitEntry[]>(initialCompetitorEntries);
 
+  // Sincroniza el estado local con el del contexto cuando el contexto cambie
   useEffect(() => {
+    console.log('DEBUG CompetitorScreen: initialCompetitorEntries actualizados en effect:', initialCompetitorEntries.length);
     setCollectedCompetitorEntries(initialCompetitorEntries);
   }, [initialCompetitorEntries]);
 
+  // Cargar detalles del comercio
   useEffect(() => {
-    if (isFocused && !currentCommerceId) {
-      console.warn('ID de comercio no proporcionado a CompetitorScreen. Redirigiendo a CommerceList.');
-      Alert.alert('Error de Sesión', 'No se pudo determinar el comercio actual. Por favor, reinicia la visita.', [
-        {
-          text: 'OK',
-          onPress: () => {
-            resetVisit();
-            navigation.replace('CommerceList');
-          },
-        },
-      ]);
-      return;
-    }
-
     const fetchCommerceDetails = async () => {
       try {
-        if (currentCommerceId) {
-          const storedCommerces = await getCommerces();
-          const foundCommerce = storedCommerces.find(c => c.id === currentCommerceId);
-          if (foundCommerce) {
-            setCommerce(foundCommerce);
-          } else {
-            console.warn('Comercio no encontrado en CompetitorScreen para ID:', currentCommerceId);
-            Alert.alert('Error de Sesión', 'El comercio no se encontró. Por favor, selecciona un comercio nuevamente.', [
-              { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } },
-            ]);
-          }
+        if (!currentCommerceId) {
+          console.warn('ID de comercio no proporcionado a CompetitorScreen. Redirigiendo a CommerceList.');
+          Alert.alert('Error de Sesión', 'No se pudo determinar el comercio actual. Por favor, reinicia la visita.', [
+            {
+              text: 'OK',
+              onPress: () => {
+                resetVisit();
+                navigation.replace('CommerceList');
+              },
+            },
+          ]);
+          return;
+        }
+
+        const storedCommerces = await getCommerces();
+        const foundCommerce = storedCommerces.find(c => c.id === currentCommerceId);
+        if (foundCommerce) {
+          setCommerce(foundCommerce);
+        } else {
+          console.warn('Comercio no encontrado en CompetitorScreen para ID:', currentCommerceId);
+          Alert.alert('Error de Sesión', 'El comercio no se encontró. Por favor, selecciona un comercio nuevamente.', [
+            { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } },
+          ]);
         }
       } catch (error) {
         console.error('Error al cargar detalles del comercio en CompetitorScreen:', error);
@@ -138,15 +103,43 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
         ]);
       } finally {
         setIsLoadingCommerce(false);
+        if (!isLoadingCompetitorProducts) {
+          setShowOverlayLoading(false);
+        }
       }
     };
 
-    if (currentCommerceId) {
+    if (isFocused && currentCommerceId) {
       fetchCommerceDetails();
-    } else {
+    } else if (!currentCommerceId) {
       setIsLoadingCommerce(false);
+      setShowOverlayLoading(false);
     }
-  }, [isFocused, currentCommerceId, navigation, resetVisit]);
+  }, [isFocused, currentCommerceId, navigation, resetVisit, isLoadingCompetitorProducts]);
+
+  // Cargar productos de competencia desde Supabase
+  useEffect(() => {
+    const fetchCompetitorProducts = async () => {
+      setIsLoadingCompetitorProducts(true);
+      const { data, error } = await supabase
+        .from('competitor_products')
+        .select('id, name')
+        .order('name', { ascending: true });
+
+      if (error) {
+        console.error('Error al cargar productos de competencia desde Supabase:', error);
+        Alert.alert('Error de Carga', 'No se pudieron cargar los productos de la competencia. Por favor, inténtalo de nuevo.');
+      } else {
+        setCompetitorProducts(data || []);
+      }
+      setIsLoadingCompetitorProducts(false);
+      if (!isLoadingCommerce) {
+        setShowOverlayLoading(false);
+      }
+    };
+
+    fetchCompetitorProducts();
+  }, [isLoadingCommerce]);
 
   const handleBackToVisitItems = useCallback(() => {
     updateCompetitorEntries(collectedCompetitorEntries);
@@ -186,7 +179,7 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
       return;
     }
 
-    const selectedCompetitorProduct = COMPETITOR_PRODUCTS.find(
+    const selectedCompetitorProduct = competitorProducts.find(
       (p) => p.id === selectedCompetitorProductId
     );
 
@@ -217,9 +210,37 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
     }
     setCollectedCompetitorEntries(updatedEntries);
 
+    // Limpiar campos después de añadir
     setSelectedCompetitorProductId(null);
     setCompetitorPrice('');
     setSelectedCompetitorCurrency('USD');
+  };
+
+  // NUEVA FUNCIÓN: Eliminar una entrada de producto de la competencia
+  const handleRemoveCompetitorEntry = (productIdToRemove: string) => {
+    Alert.alert(
+      'Confirmar Eliminación',
+      '¿Estás seguro de que quieres eliminar esta entrada de producto de la competencia?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Eliminar',
+          onPress: () => {
+            const updatedEntries = collectedCompetitorEntries.filter(
+              (entry) => entry.productId !== productIdToRemove
+            );
+            setCollectedCompetitorEntries(updatedEntries);
+            updateCompetitorEntries(updatedEntries); // Actualiza el contexto también
+            Alert.alert('Eliminado', 'La entrada ha sido eliminada.');
+          },
+          style: 'destructive',
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   const handleFinalizeSectionAndContinue = () => {
@@ -238,50 +259,40 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
 
     updateCompetitorEntries(collectedCompetitorEntries);
     markSectionComplete('competitor', true);
-    navigation.navigate('PhotoAndLocation', { commerceId: currentCommerceId });
+    navigation.navigate('VisitItems', { commerceId: currentCommerceId });
   };
 
-  // --- CORRECCIÓN EN renderProductEntryItem DENTRO DE CompetitorScreen.tsx ---
-  // Esta función es la que renderiza las entradas de productos Chispa
-  // Y es donde se estaba produciendo el error con .toFixed en valores null.
-  const renderProductEntryItem = ({ item }: { item: ProductVisitEntry }) => (
-    <View style={styles.productEntryItem}>
-      <Text style={styles.productEntryText}>** {item.productName} **</Text>
-      <Text style={styles.productEntryDetail}>
-        Precio: {item.price !== null ? `${item.currency === 'USD' ? '$' : 'BsF'} ${item.price.toFixed(2)}` : 'N/A'}
-      </Text>
-      <Text style={styles.productEntryDetail}>
-        Anaqueles: {item.shelfStock !== null ? item.shelfStock : 'N/A'}
-      </Text>
-      <Text style={styles.productEntryDetail}>
-        General: {item.generalStock !== null ? item.generalStock : 'N/A'}
-      </Text>
-    </View>
-  );
-  // --- FIN DE CORRECCIÓN PARA renderProductEntryItem ---
-
-  // Esta función renderiza las entradas de productos de la Competencia (no afectadas por el error de Chispa)
   const renderCompetitorEntryItem = ({ item }: { item: CompetitorVisitEntry }) => (
     <View style={styles.competitorEntryItem}>
-      <Text style={styles.competitorEntryText}>** {item.productName} **</Text>
-      <Text style={styles.competitorEntryDetail}>Precio: {item.currency === 'USD' ? '$' : 'BsF'} {item.price.toFixed(2)}</Text>
+      <View style={styles.competitorEntryDetails}>
+        <Text style={styles.competitorEntryText}>** {item.productName} **</Text>
+        <Text style={styles.competitorEntryDetail}>Precio: {item.currency === 'USD' ? '$' : 'BsF'} {item.price.toFixed(2)}</Text>
+      </View>
+      <TouchableOpacity
+        onPress={() => handleRemoveCompetitorEntry(item.productId)}
+        style={styles.deleteButton}
+      >
+        <Icon name="close-circle" size={28} color={ERROR_RED} />
+      </TouchableOpacity>
     </View>
   );
 
-  if (!currentCommerceId || isLoadingCommerce) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007bff" />
-        <Text style={styles.loadingText}>Cargando información del comercio...</Text>
-      </View>
-    );
-  }
+  const availableCompetitorProducts = competitorProducts.filter(
+    (product) => !collectedCompetitorEntries.some(entry => entry.productId === product.id)
+  );
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      {showOverlayLoading && (
+        <View style={styles.overlayLoadingContainer}>
+          <ActivityIndicator size="large" color={DARK_BLUE} />
+          <Text style={styles.overlayLoadingText}>Cargando...</Text>
+        </View>
+      )}
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={handleBackToVisitItems}>
@@ -290,21 +301,6 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
           <Text style={styles.headerTitle}>Competencia para:</Text>
           <Text style={styles.commerceName}>{commerce?.name || 'Comercio Desconocido'}</Text>
           {commerce?.address && <Text style={styles.commerceAddress}>{commerce.address}</Text>}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Presentaciones Chispa Recopiladas</Text>
-          {productEntries.length === 0 ? (
-            <Text style={styles.noDataText}>No se recopiló ninguna presentación Chispa.</Text>
-          ) : (
-            <FlatList
-              data={productEntries}
-              renderItem={renderProductEntryItem} // <-- Usa la función corregida aquí
-              keyExtractor={(item, index) => item.productId + index.toString()}
-              contentContainerStyle={styles.collectedProductsList}
-              scrollEnabled={false}
-            />
-          )}
         </View>
 
         <View style={styles.card}>
@@ -323,7 +319,7 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
               itemStyle={styles.pickerItem}
             >
               <Picker.Item label="-- Selecciona un Producto --" value={null} />
-              {COMPETITOR_PRODUCTS.map((competitor) => (
+              {availableCompetitorProducts.map((competitor) => (
                 <Picker.Item key={competitor.id} label={competitor.name} value={competitor.id} />
               ))}
             </Picker>
@@ -349,7 +345,7 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
               <TextInput
                 style={styles.input}
                 placeholder="Precio del producto de la competencia"
-                placeholderTextColor="#999"
+                placeholderTextColor={PLACEHOLDER_GRAY}
                 value={competitorPrice}
                 onChangeText={setCompetitorPrice}
                 keyboardType="numeric"
@@ -408,17 +404,20 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#e9eff4',
+    backgroundColor: PRIMARY_BLUE_SOFT,
   },
-  loadingContainer: {
-    flex: 1,
+  overlayLoadingContainer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(227, 242, 253, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#e9eff4',
+    zIndex: 1000,
   },
-  loadingText: {
-    fontSize: 18,
-    color: '#555',
+  overlayLoadingText: {
+    fontSize: 16,
+    color: TEXT_DARK,
+    marginTop: 10,
+    fontWeight: '600',
   },
   scrollContent: {
     flexGrow: 1,
@@ -427,7 +426,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   header: {
-    backgroundColor: '#ffc107',
+    backgroundColor: DARK_BLUE,
     padding: 15,
     borderRadius: 10,
     marginBottom: 20,
@@ -446,31 +445,31 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   backButtonText: {
-    color: '#333',
+    color: TEXT_LIGHT,
     fontSize: 16,
     fontWeight: 'bold',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: TEXT_LIGHT,
     marginTop: 5,
   },
   commerceName: {
     fontSize: 26,
     fontWeight: 'bold',
-    color: '#333',
+    color: TEXT_LIGHT,
     marginTop: 5,
     textAlign: 'center',
   },
   commerceAddress: {
     fontSize: 16,
-    color: '#555',
+    color: BORDER_COLOR,
     marginTop: 5,
     textAlign: 'center',
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: LIGHT_GRAY_BACKGROUND,
     borderRadius: 15,
     padding: 20,
     shadowColor: '#000',
@@ -483,13 +482,13 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
+    color: DARK_BLUE,
     marginBottom: 15,
     textAlign: 'center',
   },
   noDataText: {
     fontSize: 16,
-    color: '#666',
+    color: TEXT_DARK,
     textAlign: 'center',
     fontStyle: 'italic',
     paddingVertical: 10,
@@ -497,52 +496,41 @@ const styles = StyleSheet.create({
   collectedProductsList: {
     marginTop: 10,
   },
-  productEntryItem: {
-    backgroundColor: '#e6f7ff',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#99d9ea',
-  },
-  productEntryText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 3,
-  },
-  productEntryDetail: {
-    fontSize: 14,
-    color: '#666',
-  },
   competitorEntryItem: {
-    backgroundColor: '#ffe6e6',
-    padding: 10,
+    backgroundColor: PRIMARY_BLUE_SOFT,
+    padding: 12,
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#ffb3b3',
+    borderColor: BORDER_COLOR,
+    flexDirection: 'row', // Para alinear el texto y el botón
+    justifyContent: 'space-between', // Para que el botón esté a la derecha
+    alignItems: 'center', // Para centrar verticalmente
+  },
+  competitorEntryDetails: {
+    flex: 1, // Para que los detalles ocupen el espacio restante
+    marginRight: 10, // Espacio entre los detalles y el botón
   },
   competitorEntryText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 3,
+    color: DARK_BLUE,
   },
   competitorEntryDetail: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 15,
+    color: TEXT_DARK,
+    fontWeight: 'bold',
   },
   infoText: {
     fontSize: 13,
-    color: '#888',
+    color: '#6c757d',
     textAlign: 'center',
     marginTop: 15,
     fontStyle: 'italic',
   },
   placeholderText: {
     fontSize: 16,
-    color: '#666',
+    color: TEXT_DARK,
     textAlign: 'center',
     paddingVertical: 10,
   },
@@ -551,16 +539,16 @@ const styles = StyleSheet.create({
     textAlign: 'left',
     marginBottom: 5,
     fontSize: 15,
-    color: '#555',
+    color: TEXT_DARK,
     fontWeight: '600',
     marginTop: 10,
   },
   pickerContainer: {
-    borderColor: '#e0e0e0',
+    borderColor: BORDER_COLOR,
     borderWidth: 1,
     borderRadius: 10,
     marginBottom: 20,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: TEXT_LIGHT,
     overflow: 'hidden',
     shadowColor: 'rgba(0,0,0,0.03)',
     shadowOffset: { width: 0, height: 1 },
@@ -571,22 +559,23 @@ const styles = StyleSheet.create({
   picker: {
     height: 55,
     width: '100%',
-    color: '#333',
+    color: TEXT_DARK,
   },
   pickerItem: {
     fontSize: 17,
+    color: TEXT_DARK,
   },
   input: {
     width: '100%',
     height: 55,
-    borderColor: '#e0e0e0',
+    borderColor: BORDER_COLOR,
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 18,
     marginBottom: 20,
     fontSize: 17,
-    color: '#333',
-    backgroundColor: '#f9f9f9',
+    color: TEXT_DARK,
+    backgroundColor: TEXT_LIGHT,
     shadowColor: 'rgba(0,0,0,0.03)',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -597,11 +586,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginBottom: 15,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: LIGHT_GRAY_BACKGROUND,
     borderRadius: 10,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: BORDER_COLOR,
   },
   currencyButton: {
     flex: 1,
@@ -609,52 +598,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRightWidth: 1,
-    borderRightColor: '#e0e0e0',
+    borderRightColor: BORDER_COLOR,
   },
   currencyButtonSelected: {
-    backgroundColor: '#dc3545',
-    borderColor: '#dc3545',
+    backgroundColor: ACCENT_BLUE,
+    borderColor: ACCENT_BLUE,
   },
   currencyButtonText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#555',
+    color: TEXT_DARK,
   },
   currencyButtonTextSelected: {
-    color: '#fff',
+    color: TEXT_LIGHT,
   },
   addButton: {
-    backgroundColor: '#dc3545',
+    backgroundColor: WARNING_ORANGE,
     paddingVertical: 15,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
-    shadowColor: 'rgba(220, 53, 69, 0.4)',
+    shadowColor: 'rgba(0,0,0, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
     elevation: 5,
   },
   addButtonDisabled: {
-    backgroundColor: '#ffb3b3',
+    backgroundColor: '#FFEBEE',
     shadowOpacity: 0.2,
     elevation: 2,
   },
   addButtonText: {
-    color: '#fff',
+    color: TEXT_DARK,
     fontSize: 19,
     fontWeight: 'bold',
   },
   finalizeButton: {
-    backgroundColor: '#007bff',
+    backgroundColor: SUCCESS_GREEN,
     paddingVertical: 18,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 20,
     marginBottom: 10,
-    shadowColor: 'rgba(0, 123, 255, 0.4)',
+    shadowColor: 'rgba(0,0,0, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
@@ -662,34 +651,29 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   finalizeButtonDisabled: {
-    backgroundColor: '#a0c9f8',
+    backgroundColor: '#B2DFDB',
     shadowOpacity: 0.2,
     elevation: 2,
   },
   finalizeButtonText: {
-    color: '#fff',
+    color: TEXT_LIGHT,
     fontSize: 20,
     fontWeight: 'bold',
   },
   goToItemsButton: {
-    backgroundColor: '#6c757d',
+    backgroundColor: ACCENT_BLUE,
     paddingVertical: 15,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
     marginBottom: 20,
-    shadowColor: 'rgba(108, 117, 125, 0.4)',
+    shadowColor: 'rgba(0,0,0, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 3,
     width: '100%',
-  },
-  goToItemsButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
   },
   centeredButton: {
     alignSelf: 'center',
@@ -698,6 +682,9 @@ const styles = StyleSheet.create({
   },
   buttonTextCentered: {
     textAlign: 'center',
+  },
+  deleteButton: {
+    padding: 5,
   },
 });
 
