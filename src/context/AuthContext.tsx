@@ -1,26 +1,21 @@
-// @ts-nocheck
-// PromotorAPP/src/contexts/AuthContext.tsx
-import React, { createContext, useState, useContext, useEffect, useRef, ReactNode, useCallback } from 'react';
-import { ActivityIndicator, View, StyleSheet, Alert, Text } from 'react-native';
+// src/contexts/AuthContext.tsx
+import React, { createContext, useState, useContext, useEffect, useRef, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-
-// IMPORTAR LA INSTANCIA DE SUPABASE Y LAS FUNCIONES DE SINCRONIZACIÓN
 import { supabase } from '../services/supabase';
-import { syncPendingCommerces, syncPendingVisits } from '../services/dataService';
 
-// 1. Definir la interfaz (contrato) para el objeto de usuario autenticado
+import { Alert } from 'react-native'; // Asegúrate de importar Alert
+
 export interface User {
     id: string;
     email: string;
     username?: string;
-    name?: string; 
-    display_name?: string; // <-- Mantener para el uso interno de la app
+    name?: string;
+    display_name?: string;
     role?: string;
-    route_id?: string | null; // <-- AÑADIDO: ID de la ruta asignada al promotor
+    route_id?: string | null;
 }
 
-// 2. Definir la interfaz (contrato) para el valor que el contexto proporcionará
 interface AuthContextType {
     user: User | null;
     isAuthenticated: boolean;
@@ -32,295 +27,289 @@ interface AuthContextType {
     triggerSync: (reason?: string) => Promise<void>;
 }
 
-// 3. Crear el contexto de React
-const AuthContext = createContext<AuthContextType | undefined>(undefined); // <-- Añadido tipo para createContext
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// 4. Componente AuthProvider: Envuelve a la aplicación para proporcionar el contexto
-interface AuthProviderProps {
-    children: ReactNode;
-}
-
-export const AuthProvider = ({ children }: AuthProviderProps) => { // <-- Añadido tipo para props
-    const [user, setUser] = useState<User | null>(null); // <-- Añadido tipo
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+    const [user, setUser] = useState<User | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(true); // Siempre true al inicio
     const [isSyncing, setIsSyncing] = useState(false);
-    const [isConnected, setIsConnected] = useState(true);
+    const [isConnected, setIsConnected] = useState(true); // Asumir conectado hasta verificar
 
-    const hasAttemptedInitialSync = useRef(false);
+    // Refs para controlar el flujo y evitar duplicados
+    const authStateSubscriptionRef = useRef<any>(null); // Para almacenar la suscripción de Supabase
+    const initialLoadAttempted = useRef(false); // Para asegurar que la carga inicial solo se intente una vez
+    const syncLock = useRef(false); // Bloqueo para la sincronización
 
-    // Función auxiliar para obtener el perfil completo del usuario, incluyendo el route_id
-    const fetchUserProfile = useCallback(async (userId: string) => { // <-- AÑADIDO
+    const fetchUserProfile = useCallback(async (userId: string) => {
         try {
             const { data, error } = await supabase
-                .from('user_profiles') // Asegúrate que este es el nombre de tu tabla de perfiles
-                // --- CAMBIO CLAVE AQUÍ: 'display_name' a 'name' ---
-                .select('id, email, name, role, route_id') // Selecciona los campos necesarios, incluyendo route_id
+                .from('user_profiles')
+                .select('id, email, name, role, route_id')
                 .eq('id', userId)
                 .single();
-
             if (error) throw error;
-
-            if (data) {
-                return {
-                    id: data.id,
-                    email: data.email || '',
-                    // --- ASIGNACIÓN: Usa 'data.name' para 'display_name' ---
-                    display_name: data.name || '', // Usa 'name' de la DB, pero guárdalo como 'display_name'
-                    name: data.name || '', // También puedes guardar el 'name' original si lo necesitas por separado
-                    role: data.role || 'user',
-                    route_id: data.route_id, // <-- EL CAMPO CLAVE
-                };
-            }
-            return null;
-        } catch (error) {
-            console.error('Error fetching user profile:', error.message);
+            return data ? {
+                id: data.id,
+                email: data.email || '',
+                display_name: data.name || '',
+                name: data.name || '',
+                role: data.role || 'user',
+                route_id: data.route_id,
+            } : null;
+        } catch (error: any) {
+            console.error('Error fetching profile:', error.message);
             return null;
         }
-    }, []);
+    }, []); // Dependencias vacías: esta función es estable
 
-    const triggerSync = useCallback(async (reason = 'desconocida') => {
-        if (isSyncing) {
-            console.log(`[Sync] Abortando sincronización (${reason}): ya en curso.`);
-            return;
-        }
-        if (!isConnected) {
-            console.log(`[Sync] Abortando sincronización (${reason}): sin conexión.`);
-            return;
-        }
-        if (!isAuthenticated) {
-            console.log(`[Sync] Abortando sincronización (${reason}): usuario no autenticado.`);
-            return;
-        }
-        
-        if (hasAttemptedInitialSync.current && reason === 'app_inicio_o_reconexion_automatica') {
-            console.log(`[Sync] Sincronización automática de inicio ya intentada. Saltando. (Razón: ${reason})`);
+    const triggerSync = useCallback(async (reason = 'unknown') => {
+        if (syncLock.current || isSyncing || !isConnected || !user || !user.route_id) {
+            console.log(`[Sync] Aborting sync (<span class="math-inline">\{reason\}\)\. Conditions\: lock\=</span>{syncLock.current}, isSyncing=<span class="math-inline">\{isSyncing\}, isConnected\=</span>{isConnected}, userPresent=<span class="math-inline">\{\!\!user\}, routeIdPresent\=</span>{!!user?.route_id}`);
             return;
         }
 
+        syncLock.current = true; // Bloquear nuevas sincronizaciones
         setIsSyncing(true);
-        console.log(`[Sync] Iniciando proceso de sincronización (razón: ${reason})...`);
+        console.log(`[Sync] Initiating sync (${reason})...`);
+
         try {
-            await syncPendingCommerces();
-            await syncPendingVisits();
-            console.log('[Sync] Sincronización completa.');
-        } catch (error) {
-            console.error('[Sync] Error durante la sincronización:', error.message);
-            Alert.alert('Error de Sincronización', 'Hubo un problema al sincronizar los datos. Inténtalo de nuevo más tarde.');
+          //  await syncPendingCommerces();
+            //await syncPendingVisits();
+        } catch (error: any) {
+            console.error('[Sync] Error:', error.message);
         } finally {
             setIsSyncing(false);
-            if (reason === 'app_inicio_o_reconexion_automatica' || reason === 'login_exitoso') {
-                hasAttemptedInitialSync.current = true;
-            }
+            // Pequeño retardo para evitar spam de sincronización.
+            // Es un backoff simple, puedes ajustarlo si es necesario.
+            setTimeout(() => {
+                syncLock.current = false;
+            }, 5000); // Esperar 5 segundos antes de permitir otra sincronización
         }
-    }, [isSyncing, isConnected, isAuthenticated]);
+    }, [isSyncing, isConnected, user]); // Depende de estos estados y el objeto user
 
-    const login = async (email, password) => {
+    const login = useCallback(async (email: string, password: string): Promise<boolean> => {
         setIsLoading(true);
         try {
             const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) throw error;
 
-            if (error) {
-                throw error;
+            const userProfile = await fetchUserProfile(data.user.id);
+            if (!userProfile) {
+                await supabase.auth.signOut(); // Si no hay perfil, cerrar sesión.
+                throw new Error('Perfil de usuario incompleto. Por favor, contacta a soporte.');
             }
 
-            if (data.user) {
-                // <-- MODIFICADO: Ahora obtenemos el perfil completo del usuario
-                const userProfile = await fetchUserProfile(data.user.id);
+            const loggedInUser: User = {
+                id: data.user.id,
+                email: data.user.email || '',
+                display_name: userProfile.display_name,
+                name: userProfile.name,
+                role: userProfile.role,
+                route_id: userProfile.route_id,
+            };
 
-                if (!userProfile) {
-                    throw new Error('No se pudo cargar el perfil completo del usuario.');
-                }
-                
-                const loggedInUser: User = { // <-- Añadido tipo
-                    id: data.user.id,
-                    email: data.user.email || '',
-                    // username, name, display_name y role ahora vienen de userProfile
-                    display_name: userProfile.display_name, 
-                    name: userProfile.name, // Asegúrate de mantenerlo si lo necesitas
-                    role: userProfile.role,
-                    route_id: userProfile.route_id, // <-- EL CAMPO CLAVE
-                };
+            setUser(loggedInUser);
+            setIsAuthenticated(true);
+            await AsyncStorage.setItem('local_app_user_data', JSON.stringify(loggedInUser));
 
-                setUser(loggedInUser);
-                setIsAuthenticated(true);
-                await AsyncStorage.setItem('local_app_user_data', JSON.stringify(loggedInUser));
-
-                Alert.alert('Éxito', `¡Inicio de sesión exitoso como ${loggedInUser.display_name || loggedInUser.email}!`);
-                
-                return true;
-            } else {
-                Alert.alert('Error', 'No se pudo obtener la información del usuario después del login.');
-                return false;
+            if (isConnected && loggedInUser.route_id) {
+                triggerSync('login_success');
             }
-        } catch (error) {
-            console.error('Error durante el login de Supabase:', error.message);
-            Alert.alert('Error de Login', error.message || 'Error desconocido al iniciar sesión.');
-            setUser(null);
-            setIsAuthenticated(false);
+
+            return true;
+
+        } catch (error: any) {
+            console.error('Login error:', error.message);
+            Alert.alert('Error de Inicio de Sesión', error.message);
             return false;
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [fetchUserProfile, isConnected, triggerSync]); // Depende de estas funciones/estados
 
-    const logout = async () => {
+    const logout = useCallback(async () => {
         setIsLoading(true);
         try {
             const { error } = await supabase.auth.signOut();
-
-            if (error) {
-                throw error;
-            }
+            if (error) throw error;
 
             setUser(null);
             setIsAuthenticated(false);
             await AsyncStorage.removeItem('local_app_user_data');
-            Alert.alert('Sesión Cerrada', 'Has cerrado sesión exitosamente.');
-            hasAttemptedInitialSync.current = false;
-        } catch (error) {
-            console.error('Error durante el logout de Supabase:', error.message);
-            Alert.alert('Error de Logout', error.message || 'Error desconocido al cerrar sesión.');
+            Alert.alert('Sesión Cerrada', 'Has cerrado sesión correctamente.');
+
+            // Resetear flags después de cerrar sesión
+            initialLoadAttempted.current = false;
+            syncLock.current = false;
+        } catch (error: any) {
+            console.error('Logout error:', error.message);
+            Alert.alert('Error al Cerrar Sesión', error.message);
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []); // Dependencias vacías: esta función es estable
 
-    // --- EFECTOS DE CARGA Y SINCRONIZACIÓN ---
-
-    // Efecto 1: Cargar el estado de autenticación de Supabase al iniciar la app
+    // EFFECT 1: Cargar la sesión inicial y establecer el listener de authStateChange UNA SOLA VEZ
     useEffect(() => {
-        const loadSupabaseSession = async () => {
-            console.log('[AuthContext] Verificando sesión inicial de Supabase...');
+        // Previene la doble ejecución si el componente se monta/desmonta rápidamente en desarrollo
+        if (initialLoadAttempted.current) {
+            setIsLoading(false); // Asegura que isLoading se desactiva si ya se intentó cargar
+            return;
+        }
+        initialLoadAttempted.current = true; // Marca que el intento inicial ha comenzado
+
+        const loadAndListen = async () => {
+            setIsLoading(true);
             try {
-                const storedLocalUser = await AsyncStorage.getItem('local_app_user_data');
-                if (storedLocalUser) {
-                    const parsedUser = JSON.parse(storedLocalUser);
+                // 1. Intentar cargar desde AsyncStorage para una UI más rápida
+                const storedUser = await AsyncStorage.getItem('local_app_user_data');
+                if (storedUser) {
+                    const parsedUser = JSON.parse(storedUser);
                     setUser(parsedUser);
                     setIsAuthenticated(true);
-                    console.log('[AuthContext] Usuario precargado de AsyncStorage:', parsedUser.email);
+                    console.log('[AuthContext] Sesión restaurada desde AsyncStorage.');
                 }
 
+                // 2. Obtener sesión de Supabase y configurar el listener
                 const { data: { session }, error } = await supabase.auth.getSession();
 
-                if (error) {
-                    console.error('[AuthContext] Error al obtener sesión de Supabase:', error.message);
+                if (error || !session) {
+                    console.log('[AuthContext] No hay sesión activa en Supabase o error.');
+                    // Si no hay sesión o hay error, limpiar cualquier estado anterior
                     setUser(null);
                     setIsAuthenticated(false);
                     await AsyncStorage.removeItem('local_app_user_data');
-                } else if (session) {
-                    console.log('[AuthContext] Sesión Supabase existente:', session.user?.email);
-                    // <-- MODIFICADO: Ahora obtenemos el perfil completo del usuario
-                    const userProfile = await fetchUserProfile(session.user.id);
-
-                    if (!userProfile) {
-                        throw new Error('No se pudo cargar el perfil completo del usuario para la sesión existente.');
-                    }
-
-                    const loadedUser: User = { // <-- Añadido tipo
-                        id: session.user.id,
-                        email: session.user.email || '',
-                        // username, name, display_name y role ahora vienen de userProfile
-                        display_name: userProfile.display_name,
-                        name: userProfile.name, // Asegúrate de mantenerlo si lo necesitas
-                        role: userProfile.role,
-                        route_id: userProfile.route_id, // <-- EL CAMPO CLAVE
-                    };
-                    setUser(loadedUser);
-                    setIsAuthenticated(true);
-                    await AsyncStorage.setItem('local_app_user_data', JSON.stringify(loadedUser));
                 } else {
-                    console.log('[AuthContext] No hay sesión Supabase activa.');
-                    setUser(null);
-                    setIsAuthenticated(false);
-                    await AsyncStorage.removeItem('local_app_user_data');
+                    // Si hay sesión en Supabase, obtener perfil completo
+                    const userProfile = await fetchUserProfile(session.user.id);
+                    if (userProfile) {
+                        const loadedUser: User = {
+                            id: session.user.id,
+                            email: session.user.email || '',
+                            display_name: userProfile.display_name,
+                            name: userProfile.name,
+                            role: userProfile.role,
+                            route_id: userProfile.route_id,
+                        };
+                        setUser(loadedUser);
+                        setIsAuthenticated(true);
+                        await AsyncStorage.setItem('local_app_user_data', JSON.stringify(loadedUser));
+                        console.log('[AuthContext] Sesión activa de Supabase cargada.');
+                    } else {
+                        // Sesión pero perfil incompleto, cerrar sesión para evitar un estado inconsistente
+                        console.warn('[AuthContext] Sesión Supabase activa pero perfil incompleto. Cerrando sesión.');
+                        await supabase.auth.signOut();
+                        setUser(null);
+                        setIsAuthenticated(false);
+                        await AsyncStorage.removeItem('local_app_user_data');
+                    }
                 }
-            } catch (error) {
-                console.error('[AuthContext] Error general en loadSupabaseSession:', error.message);
+            } catch (err: any) {
+                console.error('[AuthContext] Error fatal al cargar/inicializar sesión:', err.message);
                 setUser(null);
                 setIsAuthenticated(false);
+                await AsyncStorage.removeItem('local_app_user_data');
             } finally {
-                setIsLoading(false);
-                console.log(`[AuthContext] Carga inicial de autenticación finalizada.`);
+                setIsLoading(false); // La carga inicial ha terminado
+                console.log('[AuthContext] Initial session load finished.');
             }
         };
 
-        loadSupabaseSession();
+        loadAndListen(); // Ejecutar la lógica de carga inicial
 
-        // Listener para cambios de estado de autenticación de Supabase
-        const { data: { subscription: authListenerSubscription } } = supabase.auth.onAuthStateChange(
+        // Configurar el listener de auth state change una sola vez
+        authStateSubscriptionRef.current = supabase.auth.onAuthStateChange(
             async (event, session) => {
-                console.log(`[AuthContext] Evento de Supabase auth: ${event}`);
-                if (session) {
-                    // <-- MODIFICADO: Ahora obtenemos el perfil completo del usuario
-                    const userProfile = await fetchUserProfile(session.user.id);
+                console.log(`[Auth State Change] Event: ${event}`);
+                // setIsLoading(true); // Descomentar si el proceso dentro de onAuthStateChange es largo
 
+                if (session) {
+                    const userProfile = await fetchUserProfile(session.user.id);
                     if (!userProfile) {
-                        console.error('No se pudo cargar el perfil completo del usuario en authStateChange.');
-                        return; // No actualizar si no se puede obtener el perfil
+                        console.warn('[Auth State Change] Perfil incompleto para el usuario logueado. Cerrando sesión.');
+                        await supabase.auth.signOut(); // Forzar logout si el perfil es incompleto
+                        setUser(null);
+                        setIsAuthenticated(false);
+                        await AsyncStorage.removeItem('local_app_user_data');
+                        // setIsLoading(false);
+                        return;
                     }
 
-                    const updatedUser: User = { // <-- Añadido tipo
+                    const updatedUser: User = {
                         id: session.user.id,
                         email: session.user.email || '',
-                        // username, name, display_name y role ahora vienen de userProfile
                         display_name: userProfile.display_name,
-                        name: userProfile.name, // Asegúrate de mantenerlo si lo necesitas
+                        name: userProfile.name,
                         role: userProfile.role,
-                        route_id: userProfile.route_id, // <-- EL CAMPO CLAVE
+                        route_id: userProfile.route_id,
                     };
-                    setUser(updatedUser);
+
+                    // Solo actualizar el estado si el objeto de usuario realmente ha cambiado
+                    // Esto evita renders innecesarios si la sesión se refresca sin cambios en el perfil
+                    if (JSON.stringify(user) !== JSON.stringify(updatedUser)) {
+                        setUser(updatedUser);
+                        console.log('[Auth State Change] User state updated.');
+                    }
                     setIsAuthenticated(true);
                     await AsyncStorage.setItem('local_app_user_data', JSON.stringify(updatedUser));
-                    
-                    console.log('[AuthContext] Disparando sincronización por cambio de estado de autenticación.');
-                    triggerSync('login_exitoso');
 
+
+                    // Disparar sincronización solo si el evento es de login/sesión inicial/refresco y la conexión está bien
+                    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') &&
+                        isConnected && updatedUser.route_id) {
+                        triggerSync('auth_state_change');
+                    }
                 } else {
-                    setUser(null);
-                    setIsAuthenticated(false);
-                    await AsyncStorage.removeItem('local_app_user_data');
-                    hasAttemptedInitialSync.current = false;
+                    // Si no hay sesión (e.g., SIGNED_OUT), limpiar el estado local
+                    if (user || isAuthenticated) { // Solo si previamente había un usuario logueado
+                        console.log('[Auth State Change] Usuario desautenticado. Limpiando estado.');
+                        setUser(null);
+                        setIsAuthenticated(false);
+                        await AsyncStorage.removeItem('local_app_user_data');
+                    }
                 }
+                // setIsLoading(false); // Descomentar si se descomentó arriba
             }
         );
 
+        // Función de limpieza para desuscribirse cuando el componente se desmonta
         return () => {
-            authListenerSubscription?.unsubscribe();
+            console.log('[AuthContext] Cleaning up auth state subscription.');
+            if (authStateSubscriptionRef.current) {
+                authStateSubscriptionRef.current.data.subscription.unsubscribe();
+            }
         };
-    }, [fetchUserProfile, triggerSync]); // <-- Añadido fetchUserProfile a las dependencias
+    }, [fetchUserProfile, triggerSync, user, isAuthenticated, isConnected]); // Dependencias para reaccionar a cambios relevantes
 
-    // Efecto 2: Listener para el estado de la conexión a internet
+    // EFFECT 2: Manejar cambios de estado de la red (separado para claridad)
     useEffect(() => {
         const unsubscribeNetInfo = NetInfo.addEventListener(state => {
             const currentIsConnected = state.isConnected ?? true;
-            console.log(`[NetInfo] Estado de conexión cambiado: ${currentIsConnected ? 'Conectado' : 'Desconectado'}`);
-            setIsConnected(currentIsConnected);
+            if (isConnected !== currentIsConnected) {
+                console.log(`[NetInfo] Connection changed to: ${currentIsConnected}`);
+                setIsConnected(currentIsConnected);
+                // Si la conexión se recupera y el usuario está autenticado, intenta sincronizar
+                if (currentIsConnected && isAuthenticated && user?.route_id) {
+                    triggerSync('app_reconnected');
+                }
+            }
         });
 
+        // Obtener el estado inicial de la red
         NetInfo.fetch().then(state => {
-            const currentIsConnected = state.isConnected ?? true;
-            setIsConnected(currentIsConnected);
-            console.log(`[NetInfo] Estado inicial de conexión: ${currentIsConnected ? 'Conectado' : 'Desconectado'}`);
+            setIsConnected(state.isConnected ?? true);
+            console.log(`[NetInfo] Initial connection state: ${state.isConnected ?? true}`);
         });
 
         return () => {
+            console.log('[AuthContext] Cleaning up NetInfo subscription.');
             unsubscribeNetInfo();
         };
-    }, []);
+    }, [isConnected, isAuthenticated, user, triggerSync]); // Dependencias
 
-    // Efecto 3: Disparar sincronización UNICAMENTE cuando la aplicación carga,
-    // el usuario está autenticado, hay conexión, y la sincronización inicial NO ha sido intentada.
-    useEffect(() => {
-        console.log(`[Sync Effect Trigger] Evaluación: isLoading=${isLoading}, isAuthenticated=${isAuthenticated}, isConnected=${isConnected}, isSyncing=${isSyncing}, hasAttemptedInitialSync.current=${hasAttemptedInitialSync.current}`);
-
-        if (!isLoading && isAuthenticated && isConnected && !hasAttemptedInitialSync.current) {
-            console.log('[Sync Effect] Condiciones para SINCRONIZACIÓN INICIAL CUMPLIDAS. Disparando UNA VEZ.');
-            triggerSync('app_inicio_o_reconexion_automatica');
-        }
-    }, [isLoading, isAuthenticated, isConnected, triggerSync]);
-
-    const authContextValue = {
+    // Memoizar el valor del contexto para evitar re-renders innecesarios de los consumidores.
+    const authContextValue = useMemo(() => ({
         user,
         isAuthenticated,
         isLoading,
@@ -329,16 +318,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => { // <-- Añadi
         login,
         logout,
         triggerSync,
-    };
-
-    if (isLoading) {
-        return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#ffffff" />
-                <Text style={styles.loadingText}>Cargando sesión...</Text>
-            </View>
-        );
-    }
+    }), [user, isAuthenticated, isLoading, isSyncing, isConnected, login, logout, triggerSync]);
 
     return (
         <AuthContext.Provider value={authContextValue}>
@@ -347,26 +327,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => { // <-- Añadi
     );
 };
 
-// 5. Hook personalizado para consumir el contexto fácilmente
 export const useAuth = () => {
     const context = useContext(AuthContext);
-    if (context === undefined) {
-        throw new Error('useAuth debe ser usado dentro de un AuthProvider');
-    }
+    if (!context) throw new Error('useAuth debe usarse dentro de AuthProvider');
     return context;
 };
-
-// Estilos para la pantalla de carga inicial del AuthProvider
-const styles = StyleSheet.create({
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#3498db',
-    },
-    loadingText: {
-        marginTop: 10,
-        fontSize: 16,
-        color: '#ffffff',
-    },
-});

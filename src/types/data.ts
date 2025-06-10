@@ -19,7 +19,7 @@ export interface CompetitorVisitEntry {
 }
 
 export interface PhotoEntry {
-  uri: string; // URI local (file:///)
+  uri: string; // URI local (file:///) o URL pública de Supabase después de la subida
   timestamp: string;
   type: 'before' | 'after' | 'shelf' | 'other'; // Definir tipos de fotos
 }
@@ -32,11 +32,11 @@ export interface LocationEntry {
   altitude: number | null;
   cityName: string | null;
   addressName: string | null;
-  stateName: string | null; // <-- ¡NUEVA PROPIEDAD AGREGADA AQUÍ!
+  stateName: string | null;
 }
 
 // --- Tipos para el estado de la sección ---
-export type VisitSectionStatusType = 'completed' | 'pending' | 'error'; // Ajustado para ser más general
+export type VisitSectionStatusType = 'completed' | 'pending' | 'error';
 export interface VisitSectionState {
   chispa: VisitSectionStatusType;
   competitor: VisitSectionStatusType;
@@ -45,17 +45,37 @@ export interface VisitSectionState {
   summary: VisitSectionStatusType;
 }
 
+// --- Tipo de Visita Completa (usado en el contexto/para almacenamiento local) ---
+// Este tipo combina todos los datos de una visita antes de ser desglosados
+// para su almacenamiento relacional en Supabase.
+export interface Visit {
+  id: string; // Se genera un ID único para cada visita (ej. UUID)
+  commerceId: string;
+  commerceName: string;
+  timestamp: string; // Hora de inicio de la visita (ISO local)
+  endTimestamp?: string; // Hora de finalización (se establece al finalizar)
+  promoterId?: string | null; // ID del usuario que realiza la visita
+  notes?: string | null; // Notas generales de la visita
+  productEntries: ProductVisitEntry[]; // Detalles de productos Chispa
+  competitorEntries: CompetitorVisitEntry[]; // Detalles de la competencia
+  photos: PhotoEntry[]; // Fotos tomadas durante la visita
+  location: LocationEntry | null; // Datos de ubicación geográfica
+  sectionStatus: VisitSectionState; // Estado de completitud de las secciones
+  isSynced: boolean; // Indica si la visita ha sido sincronizada con Supabase
+}
+
+
 // --- Tipos de Datos tal como se almacenan en Supabase ---
 
 // Visit principal (para la tabla `visits`)
 export interface StoredVisit {
-  id?: string; // El ID lo genera Supabase
+  id?: string; // El ID lo genera Supabase (en este caso, lo pasamos nosotros)
   commerce_id: string;
   commerce_name: string;
   timestamp: string; // start_timestamp
   end_timestamp: string;
   promoter_id: string | null;
-  notes?: string | null; // Si añades esta columna
+  notes?: string | null;
   is_synced: boolean;
   section_status: VisitSectionState; // Usa el tipo de estado de sección más general
 }
@@ -88,9 +108,9 @@ export interface StoredCompetitorProductVisit {
 export interface StoredVisitPhoto {
   id?: string;
   visit_id: string; // FK
-  photo_url: string; // La URL pública/firmada de Supabase Storage
+  photo_url: string; // La URL pública de Supabase Storage
   timestamp: string; // Cuando se tomó la foto
-  type: 'before' | 'after' | 'shelf' | 'other'; // Asegúrate de que tu tabla `visit_photos` tenga esta columna
+  type: 'before' | 'after' | 'shelf' | 'other';
   created_at?: string;
 }
 
@@ -103,13 +123,13 @@ export interface StoredVisitLocation {
   timestamp: string;
   accuracy: number | null;
   altitude: number | null;
-  cityName: string | null;
-  addressName: string | null;
-  state_name: string | null; // <-- ¡NUEVA PROPIEDAD AGREGADA AQUÍ! (Usando snake_case para la BD)
+  city_name: string | null;
+  address_name: string | null;
+  state_name: string | null; // Usando snake_case para la BD
   created_at?: string;
 }
 
-// Si tienes una tabla de Comercios (basado en tu definición)
+// Si tienes una tabla de Comercios
 export interface Commerce {
   id: string;
   name: string;
@@ -120,13 +140,13 @@ export interface Commerce {
   user_id?: string | null;
 }
 
-// Si tienes una tabla de productos (Chispa) (basado en tu definición)
+// Si tienes una tabla de productos (Chispa)
 export interface ChispaPresentation {
   id: string;
   name: string;
 }
 
-// Definición de CompetitorProduct (se mantuvo una única definición ya que la estructura es la misma para UI y DB)
+// Definición de CompetitorProduct
 export interface CompetitorProduct {
   id: string;
   name: string;

@@ -1,28 +1,25 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  FlatList,
-  Alert,
   TextInput,
-  KeyboardAvoidingView,
+  FlatList,
   Platform,
+  StatusBar,
+  KeyboardAvoidingView,
+  ScrollView,
+  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
-import { Commerce, CompetitorProduct, CompetitorVisitEntry } from '../types/data';
-import { getCommerces } from '../utils/storage';
-import { Picker } from '@react-native-picker/picker';
-import 'react-native-get-random-values';
-import { v4 as uuidv4 } from 'uuid';
 import { useVisit } from '../context/VisitContext';
-import { useIsFocused } from '@react-navigation/native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons'; // Asegúrate de tener este paquete instalado: npm install react-native-vector-icons
-import { supabase } from '../services/supabase';
+import { dataService } from '../services/dataService';
+import { CompetitorProduct, CompetitorVisitEntry } from '../types/data';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Picker } from '@react-native-picker/picker'; // Importar el Picker
 
 // --- CONSTANTES DE COLORES ---
 const PRIMARY_BLUE_SOFT = '#E3F2FD';
@@ -36,343 +33,332 @@ const BORDER_COLOR = '#BBDEFB';
 const LIGHT_GRAY_BACKGROUND = '#F5F5F5';
 const ERROR_RED = '#DC3545';
 const PLACEHOLDER_GRAY = '#9E9E9E';
+const DISABLED_GRAY = '#EEEEEE';
+const DISABLED_TEXT_GRAY = '#B0B0B0';
 
 type CompetitorScreenProps = StackScreenProps<AppStackParamList, 'Competitor'>;
 
 const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
   const {
-    currentCommerceId,
     competitorEntries: initialCompetitorEntries,
     updateCompetitorEntries,
-    markSectionComplete,
+    markSectionComplete, // Esta es la función correcta que debes usar
+    // finalizeVisitSection, // ¡Esta línea debe eliminarse o comentarse!
+    currentCommerceId,
+    currentCommerceName,
     resetVisit,
   } = useVisit();
 
-  const isFocused = useIsFocused();
-
-  const [commerce, setCommerce] = useState<Commerce | null>(null);
-  const [isLoadingCommerce, setIsLoadingCommerce] = useState<boolean>(true);
-  const [competitorProducts, setCompetitorProducts] = useState<CompetitorProduct[]>([]);
-  const [isLoadingCompetitorProducts, setIsLoadingCompetitorProducts] = useState<boolean>(true);
-
+  const [availableCompetitorProducts, setAvailableCompetitorProducts] = useState<CompetitorProduct[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState<boolean>(true);
   const [showOverlayLoading, setShowOverlayLoading] = useState<boolean>(true);
 
-  const [selectedCompetitorProductId, setSelectedCompetitorProductId] = useState<string | null>(null);
-  const [competitorPrice, setCompetitorPrice] = useState<string>('');
-  const [selectedCompetitorCurrency, setSelectedCompetitorCurrency] = useState<'USD' | 'VES'>('USD');
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [price, setPrice] = useState<string>('');
+  const [currency, setCurrency] = useState<'USD' | 'VES'>('USD');
+
   const [collectedCompetitorEntries, setCollectedCompetitorEntries] = useState<CompetitorVisitEntry[]>(initialCompetitorEntries);
 
-  // Sincroniza el estado local con el del contexto cuando el contexto cambie
   useEffect(() => {
-    console.log('DEBUG CompetitorScreen: initialCompetitorEntries actualizados en effect:', initialCompetitorEntries.length);
     setCollectedCompetitorEntries(initialCompetitorEntries);
   }, [initialCompetitorEntries]);
 
-  // Cargar detalles del comercio
-  useEffect(() => {
-    const fetchCommerceDetails = async () => {
-      try {
-        if (!currentCommerceId) {
-          console.warn('ID de comercio no proporcionado a CompetitorScreen. Redirigiendo a CommerceList.');
-          Alert.alert('Error de Sesión', 'No se pudo determinar el comercio actual. Por favor, reinicia la visita.', [
-            {
-              text: 'OK',
-              onPress: () => {
-                resetVisit();
-                navigation.replace('CommerceList');
-              },
-            },
-          ]);
-          return;
-        }
-
-        const storedCommerces = await getCommerces();
-        const foundCommerce = storedCommerces.find(c => c.id === currentCommerceId);
-        if (foundCommerce) {
-          setCommerce(foundCommerce);
-        } else {
-          console.warn('Comercio no encontrado en CompetitorScreen para ID:', currentCommerceId);
-          Alert.alert('Error de Sesión', 'El comercio no se encontró. Por favor, selecciona un comercio nuevamente.', [
-            { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } },
-          ]);
-        }
-      } catch (error) {
-        console.error('Error al cargar detalles del comercio en CompetitorScreen:', error);
-        Alert.alert('Error', 'Hubo un problema al cargar los detalles del comercio.', [
-          { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } },
-        ]);
-      } finally {
-        setIsLoadingCommerce(false);
-        if (!isLoadingCompetitorProducts) {
-          setShowOverlayLoading(false);
-        }
-      }
-    };
-
-    if (isFocused && currentCommerceId) {
-      fetchCommerceDetails();
-    } else if (!currentCommerceId) {
-      setIsLoadingCommerce(false);
-      setShowOverlayLoading(false);
-    }
-  }, [isFocused, currentCommerceId, navigation, resetVisit, isLoadingCompetitorProducts]);
-
-  // Cargar productos de competencia desde Supabase
   useEffect(() => {
     const fetchCompetitorProducts = async () => {
-      setIsLoadingCompetitorProducts(true);
-      const { data, error } = await supabase
-        .from('competitor_products')
-        .select('id, name')
-        .order('name', { ascending: true });
-
-      if (error) {
-        console.error('Error al cargar productos de competencia desde Supabase:', error);
-        Alert.alert('Error de Carga', 'No se pudieron cargar los productos de la competencia. Por favor, inténtalo de nuevo.');
-      } else {
-        setCompetitorProducts(data || []);
-      }
-      setIsLoadingCompetitorProducts(false);
-      if (!isLoadingCommerce) {
+      setLoadingProducts(true);
+      try {
+        const products = await dataService.getCompetitorProducts();
+        setAvailableCompetitorProducts(products || []);
+      } catch (error) {
+        console.error("Error fetching competitor products:", error);
+        Alert.alert("Error de Carga", "No se pudieron cargar los productos de la competencia. Intenta de nuevo.");
+      } finally {
+        setLoadingProducts(false);
         setShowOverlayLoading(false);
       }
     };
-
     fetchCompetitorProducts();
-  }, [isLoadingCommerce]);
+  }, []);
 
-  const handleBackToVisitItems = useCallback(() => {
-    updateCompetitorEntries(collectedCompetitorEntries);
-    if (currentCommerceId) {
-      navigation.navigate('VisitItems', { commerceId: currentCommerceId });
-    } else {
-      console.warn('Fallback: currentCommerceId es nulo en handleBackToVisitItems, redirigiendo.');
-      resetVisit();
-      navigation.replace('CommerceList');
-    }
-  }, [navigation, currentCommerceId, collectedCompetitorEntries, updateCompetitorEntries, resetVisit]);
+  // Usa este useEffect para marcar la sección como completa/incompleta basado en si hay entradas
+  useEffect(() => {
+    markSectionComplete('competitor', collectedCompetitorEntries.length > 0);
+  }, [collectedCompetitorEntries, markSectionComplete]);
 
-  const handleGoToVisitItems = useCallback(() => {
-    updateCompetitorEntries(collectedCompetitorEntries);
-    if (currentCommerceId) {
-      navigation.navigate('VisitItems', { commerceId: currentCommerceId });
-    } else {
-      console.warn('Fallback: currentCommerceId es nulo en handleGoToVisitItems, redirigiendo.');
-      resetVisit();
-      navigation.replace('CommerceList');
-    }
-  }, [navigation, currentCommerceId, collectedCompetitorEntries, updateCompetitorEntries, resetVisit]);
-
-  const handleAddCompetitorEntry = () => {
-    if (!selectedCompetitorProductId) {
-      Alert.alert('Error', 'Por favor, selecciona un producto de la competencia.');
+  const handleAddOrUpdateEntry = useCallback(() => {
+    if (!selectedProductId) {
+      Alert.alert('Selección Inválida', 'Por favor, selecciona un producto de la competencia.');
       return;
     }
-    if (!competitorPrice.trim()) {
-      Alert.alert('Error', 'Por favor, ingresa el precio del producto de la competencia.');
+    if (!price.trim()) {
+      Alert.alert('Precio Requerido', 'Por favor, introduce el precio del producto.');
       return;
     }
 
-    const parsedPrice = parseFloat(competitorPrice.replace(',', '.'));
-    if (isNaN(parsedPrice) || parsedPrice < 0) {
-      Alert.alert('Error', 'Por favor, ingresa un precio numérico válido y no negativo.');
+    const newPrice = parseFloat(price.replace(',', '.'));
+    if (isNaN(newPrice) || newPrice < 0) {
+      Alert.alert('Precio Inválido', 'Por favor, introduce un precio numérico válido y no negativo.');
       return;
     }
 
-    const selectedCompetitorProduct = competitorProducts.find(
-      (p) => p.id === selectedCompetitorProductId
-    );
+    const product = availableCompetitorProducts.find(p => p.id === selectedProductId);
 
-    if (!selectedCompetitorProduct) {
-      Alert.alert('Error interno', 'Producto de competencia seleccionado no válido.');
+    if (!product) {
+      Alert.alert('Error interno', 'Producto de competencia seleccionado no encontrado.');
       return;
     }
 
     const newEntry: CompetitorVisitEntry = {
-      productId: selectedCompetitorProductId,
-      productName: selectedCompetitorProduct.name,
-      price: parsedPrice,
-      currency: selectedCompetitorCurrency,
+      productId: product.id,
+      productName: product.name,
+      price: newPrice,
+      currency: currency,
     };
 
     const existingEntryIndex = collectedCompetitorEntries.findIndex(
-      (entry) => entry.productId === newEntry.productId
+      entry => entry.productId === newEntry.productId
     );
 
     let updatedEntries: CompetitorVisitEntry[];
     if (existingEntryIndex > -1) {
       updatedEntries = [...collectedCompetitorEntries];
       updatedEntries[existingEntryIndex] = newEntry;
-      Alert.alert('Actualizado', `"${newEntry.productName}" de la competencia ha sido actualizado.`);
+      Alert.alert('Actualizado', `"${newEntry.productName}" ha sido actualizado.`);
     } else {
       updatedEntries = [...collectedCompetitorEntries, newEntry];
-      Alert.alert('Añadido', `Producto "${newEntry.productName}" de la competencia añadido.`);
+      Alert.alert('Añadido', `Producto "${newEntry.productName}" añadido.`);
     }
+
     setCollectedCompetitorEntries(updatedEntries);
+    updateCompetitorEntries(updatedEntries);
 
-    // Limpiar campos después de añadir
-    setSelectedCompetitorProductId(null);
-    setCompetitorPrice('');
-    setSelectedCompetitorCurrency('USD');
-  };
+    setSelectedProductId(null);
+    setPrice('');
+    setCurrency('USD');
+  }, [selectedProductId, price, currency, availableCompetitorProducts, collectedCompetitorEntries, updateCompetitorEntries]);
 
-  // NUEVA FUNCIÓN: Eliminar una entrada de producto de la competencia
-  const handleRemoveCompetitorEntry = (productIdToRemove: string) => {
+  const handleEditEntry = useCallback((entry: CompetitorVisitEntry) => {
+    setSelectedProductId(entry.productId);
+    setPrice(entry.price !== null ? entry.price.toString() : '');
+    setCurrency(entry.currency);
+  }, []);
+
+  const handleDeleteEntry = useCallback((productId: string) => {
     Alert.alert(
       'Confirmar Eliminación',
-      '¿Estás seguro de que quieres eliminar esta entrada de producto de la competencia?',
+      '¿Estás seguro de que quieres eliminar esta entrada de producto de competencia?',
       [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
+        { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
           onPress: () => {
-            const updatedEntries = collectedCompetitorEntries.filter(
-              (entry) => entry.productId !== productIdToRemove
-            );
+            const updatedEntries = collectedCompetitorEntries.filter(entry => entry.productId !== productId);
             setCollectedCompetitorEntries(updatedEntries);
-            updateCompetitorEntries(updatedEntries); // Actualiza el contexto también
+            updateCompetitorEntries(updatedEntries);
             Alert.alert('Eliminado', 'La entrada ha sido eliminada.');
+            if (selectedProductId === productId) {
+              setSelectedProductId(null);
+              setPrice('');
+              setCurrency('USD');
+            }
           },
           style: 'destructive',
         },
-      ],
-      { cancelable: true }
+      ]
     );
-  };
+  }, [collectedCompetitorEntries, updateCompetitorEntries, selectedProductId]);
 
-  const handleFinalizeSectionAndContinue = () => {
-    if (collectedCompetitorEntries.length === 0) {
-      Alert.alert('Atención', 'Debes añadir al menos un producto de la competencia antes de continuar.');
-      markSectionComplete('competitor', false);
-      return;
-    }
-
-    if (!currentCommerceId) {
-      Alert.alert('Error de Sesión', 'El comercio actual no está definido. Por favor, reinicia la visita.', [
-        { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } },
-      ]);
-      return;
-    }
-
-    updateCompetitorEntries(collectedCompetitorEntries);
-    markSectionComplete('competitor', true);
-    navigation.navigate('VisitItems', { commerceId: currentCommerceId });
-  };
-
-  const renderCompetitorEntryItem = ({ item }: { item: CompetitorVisitEntry }) => (
-    <View style={styles.competitorEntryItem}>
-      <View style={styles.competitorEntryDetails}>
-        <Text style={styles.competitorEntryText}>** {item.productName} **</Text>
-        <Text style={styles.competitorEntryDetail}>Precio: {item.currency === 'USD' ? '$' : 'BsF'} {item.price.toFixed(2)}</Text>
+  const renderCompetitorEntryItem = useCallback(({ item }: { item: CompetitorVisitEntry }) => (
+    <View style={styles.productEntryItem}>
+      <View style={styles.productEntryDetails}>
+        <Text style={styles.productEntryText}>** {item.productName} **</Text>
+        <Text style={styles.productEntryDetail}>
+          Precio: {item.currency === 'USD' ? '$' : 'BsF'} {item.price.toFixed(2)}
+        </Text>
       </View>
       <TouchableOpacity
-        onPress={() => handleRemoveCompetitorEntry(item.productId)}
+        onPress={() => handleDeleteEntry(item.productId)}
         style={styles.deleteButton}
       >
         <Icon name="close-circle" size={28} color={ERROR_RED} />
       </TouchableOpacity>
     </View>
-  );
+  ), [handleDeleteEntry]);
 
-  const availableCompetitorProducts = competitorProducts.filter(
-    (product) => !collectedCompetitorEntries.some(entry => entry.productId === product.id)
-  );
+  const handleGoToVisitItems = useCallback(() => {
+    if (currentCommerceId && currentCommerceName) {
+      navigation.navigate('VisitItems', { commerceId: currentCommerceId, commerceName: currentCommerceName });
+    } else {
+      Alert.alert('Error de Sesión', 'El comercio actual o su nombre no están definidos. Por favor, reinicia la visita.', [{
+        text: 'OK',
+        onPress: () => {
+          navigation.replace('CommerceList');
+          resetVisit();
+        }
+      }]);
+    }
+  }, [navigation, currentCommerceId, currentCommerceName, resetVisit]);
+
+  const handleFinalizeSection = useCallback(() => {
+    if (collectedCompetitorEntries.length === 0) {
+      Alert.alert(
+        "Sección Vacía",
+        "No has registrado ningún producto de competencia. ¿Deseas finalizar la sección de todos modos?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Sí, Finalizar",
+            onPress: () => {
+              // *** CAMBIO CRÍTICO AQUÍ: Usamos markSectionComplete ***
+              markSectionComplete('competitor', true); // Marcamos la sección 'competitor' como completa
+              handleGoToVisitItems();
+            },
+            style: "destructive"
+          },
+        ]
+      );
+    } else {
+      // *** CAMBIO CRÍTICO AQUÍ: Usamos markSectionComplete ***
+      markSectionComplete('competitor', true); // Marcamos la sección 'competitor' como completa
+      Alert.alert("Sección Completada", "Sección de productos de competencia finalizada.");
+      handleGoToVisitItems();
+    }
+  }, [collectedCompetitorEntries, markSectionComplete, handleGoToVisitItems]); // Asegúrate de incluir markSectionComplete en las dependencias
+
+  const productsToSelect = useMemo(() => {
+    // Filtrar productos que no han sido añadidos a la lista collectedCompetitorEntries
+    return availableCompetitorProducts.filter(
+      (product) => !collectedCompetitorEntries.some(entry => entry.productId === product.id)
+    );
+  }, [availableCompetitorProducts, collectedCompetitorEntries]);
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      {showOverlayLoading && (
+      {showOverlayLoading && loadingProducts && (
         <View style={styles.overlayLoadingContainer}>
           <ActivityIndicator size="large" color={DARK_BLUE} />
-          <Text style={styles.overlayLoadingText}>Cargando...</Text>
+          <Text style={styles.overlayLoadingText}>Cargando productos de competencia...</Text>
         </View>
       )}
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBackToVisitItems}>
+          <TouchableOpacity style={styles.backButton} onPress={handleGoToVisitItems}>
             <Text style={styles.backButtonText}>{'< Volver'}</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Competencia para:</Text>
-          <Text style={styles.commerceName}>{commerce?.name || 'Comercio Desconocido'}</Text>
-          {commerce?.address && <Text style={styles.commerceAddress}>{commerce.address}</Text>}
+          <Text style={styles.headerTitle}>Productos de la Competencia</Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Registro de Competencia</Text>
+          <Text style={styles.sectionTitle}>Registro de Productos de la Competencia</Text>
+          <Text style={styles.sectionDescription}>
+            Selecciona un producto de la competencia y registra su precio.
+          </Text>
 
-          <Text style={styles.inputLabel}>Seleccionar Producto Competencia *</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={selectedCompetitorProductId}
-              onValueChange={(itemValue) => {
-                setSelectedCompetitorProductId(itemValue);
-                setCompetitorPrice('');
-                setSelectedCompetitorCurrency('USD');
-              }}
-              style={styles.picker}
-              itemStyle={styles.pickerItem}
-            >
-              <Picker.Item label="-- Selecciona un Producto --" value={null} />
-              {availableCompetitorProducts.map((competitor) => (
-                <Picker.Item key={competitor.id} label={competitor.name} value={competitor.id} />
-              ))}
-            </Picker>
-          </View>
-
-          {selectedCompetitorProductId && (
-            <View>
-              <Text style={styles.inputLabel}>Precio Competencia *</Text>
-              <View style={styles.currencyToggleContainer}>
-                <TouchableOpacity
-                  style={[styles.currencyButton, selectedCompetitorCurrency === 'USD' && styles.currencyButtonSelected]}
-                  onPress={() => setSelectedCompetitorCurrency('USD')}
-                >
-                  <Text style={[styles.currencyButtonText, selectedCompetitorCurrency === 'USD' && styles.currencyButtonTextSelected]}>$ USD</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.currencyButton, selectedCompetitorCurrency === 'VES' && styles.currencyButtonSelected]}
-                  onPress={() => setSelectedCompetitorCurrency('VES')}
-                >
-                  <Text style={[styles.currencyButtonText, selectedCompetitorCurrency === 'VES' && styles.currencyButtonTextSelected]}>BsF VES</Text>
-                </TouchableOpacity>
+          {loadingProducts ? (
+            <ActivityIndicator size="large" color={DARK_BLUE} style={styles.loadingIndicator} />
+          ) : (
+            <>
+              <Text style={styles.inputLabel}>Seleccionar Producto de Competencia *</Text>
+              <View style={styles.pickerContainer}>
+                {productsToSelect.length === 0 && collectedCompetitorEntries.length === availableCompetitorProducts.length ? (
+                  <Text style={styles.noProductsText}>Todos los productos disponibles ya han sido añadidos.</Text>
+                ) : productsToSelect.length === 0 && collectedCompetitorEntries.length === 0 ? (
+                  <Text style={styles.noProductsText}>No hay productos de competencia disponibles para seleccionar.</Text>
+                ) : (
+                  <Picker
+                    selectedValue={selectedProductId}
+                    onValueChange={(itemValue: string | null) => {
+                      setSelectedProductId(itemValue);
+                      setPrice(''); // Limpiar el precio al seleccionar un nuevo producto
+                      setCurrency('USD'); // Restablecer moneda por defecto
+                      // Si el producto ya está añadido, cargar sus datos para editar
+                      const existingEntry = collectedCompetitorEntries.find(entry => entry.productId === itemValue);
+                      if (existingEntry) {
+                        handleEditEntry(existingEntry);
+                      }
+                    }}
+                    style={styles.picker}
+                    itemStyle={styles.pickerItem}
+                  >
+                    <Picker.Item label="-- Selecciona un producto --" value={null} enabled={false} style={{ color: PLACEHOLDER_GRAY }} />
+                    {productsToSelect.map((product) => (
+                      <Picker.Item key={product.id} label={product.name} value={product.id} />
+                    ))}
+                    
+                 
+                    {collectedCompetitorEntries.map((entry) => {
+                      const product = availableCompetitorProducts.find(p => p.id === entry.productId);
+                      if (product) {
+                        return (
+                          <Picker.Item
+                            key={product.id}
+                            label={`${product.name} (Editando)`} // Indicador para edición
+                            value={product.id}
+                            style={{ color: ACCENT_BLUE, fontWeight: 'bold' }} // Estilo para resaltar
+                          />
+                        );
+                      }
+                      return null;
+                    })}
+                  </Picker>
+                )}
               </View>
-              <TextInput
-                style={styles.input}
-                placeholder="Precio del producto de la competencia"
-                placeholderTextColor={PLACEHOLDER_GRAY}
-                value={competitorPrice}
-                onChangeText={setCompetitorPrice}
-                keyboardType="numeric"
-                returnKeyType="done"
-                onSubmitEditing={handleAddCompetitorEntry}
-              />
-            </View>
-          )}
 
-          <TouchableOpacity
-            style={[styles.addButton, !selectedCompetitorProductId && styles.addButtonDisabled]}
-            onPress={handleAddCompetitorEntry}
-            disabled={!selectedCompetitorProductId}
-          >
-            <Text style={styles.addButtonText}>+ Añadir Producto Competencia</Text>
-          </TouchableOpacity>
+              {selectedProductId && (
+                <>
+                  <Text style={styles.inputLabel}>Precio Producto *</Text>
+                  <View style={styles.currencyToggleContainer}>
+                    <TouchableOpacity
+                      style={[styles.currencyButton, currency === 'USD' && styles.currencyButtonSelected]}
+                      onPress={() => setCurrency('USD')}
+                    >
+                      <Text style={[styles.currencyButtonText, currency === 'USD' && styles.currencyButtonTextSelected]}>$ USD</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.currencyButton, currency === 'VES' && styles.currencyButtonSelected]}
+                      onPress={() => setCurrency('VES')}
+                    >
+                      <Text style={[styles.currencyButtonText, currency === 'VES' && styles.currencyButtonTextSelected]}>BsF VES</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Precio del producto"
+                    placeholderTextColor={PLACEHOLDER_GRAY}
+                    keyboardType="numeric"
+                    value={price}
+                    onChangeText={setPrice}
+                    returnKeyType="done"
+                    onSubmitEditing={handleAddOrUpdateEntry}
+                  />
+
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={handleAddOrUpdateEntry}
+                  >
+                    <Text style={styles.addButtonText}>
+                      {collectedCompetitorEntries.some(entry => entry.productId === selectedProductId) ? 'Actualizar Precio' : 'Agregar Producto'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </>
+          )}
         </View>
 
         {collectedCompetitorEntries.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Productos de Competencia Añadidos</Text>
+            <Text style={styles.sectionTitle}>Productos de Competencia Registrados</Text>
             <FlatList
               data={collectedCompetitorEntries}
               renderItem={renderCompetitorEntryItem}
-              keyExtractor={(item, index) => item.productId + index.toString()}
-              contentContainerStyle={styles.collectedProductsList}
+              keyExtractor={(item) => item.productId}
               scrollEnabled={false}
+              ListEmptyComponent={<Text style={styles.noDataText}>No hay productos de competencia registrados.</Text>}
             />
           </View>
         )}
@@ -381,21 +367,21 @@ const CompetitorScreen: React.FC<CompetitorScreenProps> = ({ navigation }) => {
           (Todos los datos aún no se han guardado definitivamente. Se guardarán al finalizar la visita.)
         </Text>
 
-        <TouchableOpacity
-          style={[styles.finalizeButton, collectedCompetitorEntries.length === 0 && styles.finalizeButtonDisabled, styles.centeredButton]}
-          onPress={handleFinalizeSectionAndContinue}
-          disabled={collectedCompetitorEntries.length === 0}
-        >
-          <Text style={[styles.finalizeButtonText, styles.buttonTextCentered]}>Finalizar Sección Competencia y Continuar</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.goToItemsButton, styles.centeredButton]}
-          onPress={handleGoToVisitItems}
-        >
-          <Text style={[styles.goToItemsButtonText, styles.buttonTextCentered]}>Ir a Items de Visita</Text>
-        </TouchableOpacity>
-
+        <View style={styles.bottomButtonsContainer}>
+          <TouchableOpacity
+            style={[styles.finalizeButton, collectedCompetitorEntries.length === 0 && styles.finalizeButtonDisabled]}
+            onPress={handleFinalizeSection}
+            disabled={loadingProducts} // Deshabilitar si se están cargando los productos
+          >
+            <Text style={styles.finalizeButtonText}>Finalizar Sección Competencia</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.goToItemsButton}
+            onPress={handleGoToVisitItems}
+          >
+            <Text style={styles.goToItemsButtonText}>Ir a Items de Visita</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -405,6 +391,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: PRIMARY_BLUE_SOFT,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   overlayLoadingContainer: {
     ...StyleSheet.absoluteFillObject,
@@ -422,12 +409,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 40,
     paddingBottom: 20,
   },
   header: {
     backgroundColor: DARK_BLUE,
-    padding: 15,
+    paddingVertical: 15,
     borderRadius: 10,
     marginBottom: 20,
     alignItems: 'center',
@@ -437,11 +423,12 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
     position: 'relative',
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 15 : 15,
   },
   backButton: {
     position: 'absolute',
     left: 10,
-    top: 15,
+    top: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 15 : 15,
     padding: 5,
   },
   backButtonText: {
@@ -450,21 +437,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
     color: TEXT_LIGHT,
-    marginTop: 5,
-  },
-  commerceName: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: TEXT_LIGHT,
-    marginTop: 5,
-    textAlign: 'center',
-  },
-  commerceAddress: {
-    fontSize: 16,
-    color: BORDER_COLOR,
     marginTop: 5,
     textAlign: 'center',
   },
@@ -486,53 +461,15 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     textAlign: 'center',
   },
-  noDataText: {
+  sectionDescription: {
     fontSize: 16,
     color: TEXT_DARK,
+    marginBottom: 15,
     textAlign: 'center',
-    fontStyle: 'italic',
-    paddingVertical: 10,
+    lineHeight: 22,
   },
-  collectedProductsList: {
-    marginTop: 10,
-  },
-  competitorEntryItem: {
-    backgroundColor: PRIMARY_BLUE_SOFT,
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: BORDER_COLOR,
-    flexDirection: 'row', // Para alinear el texto y el botón
-    justifyContent: 'space-between', // Para que el botón esté a la derecha
-    alignItems: 'center', // Para centrar verticalmente
-  },
-  competitorEntryDetails: {
-    flex: 1, // Para que los detalles ocupen el espacio restante
-    marginRight: 10, // Espacio entre los detalles y el botón
-  },
-  competitorEntryText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: DARK_BLUE,
-  },
-  competitorEntryDetail: {
-    fontSize: 15,
-    color: TEXT_DARK,
-    fontWeight: 'bold',
-  },
-  infoText: {
-    fontSize: 13,
-    color: '#6c757d',
-    textAlign: 'center',
-    marginTop: 15,
-    fontStyle: 'italic',
-  },
-  placeholderText: {
-    fontSize: 16,
-    color: TEXT_DARK,
-    textAlign: 'center',
-    paddingVertical: 10,
+  loadingIndicator: {
+    marginVertical: 20,
   },
   inputLabel: {
     width: '100%',
@@ -543,13 +480,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 10,
   },
-  pickerContainer: {
+  pickerContainer: { // Estilos para el contenedor del Picker
     borderColor: BORDER_COLOR,
     borderWidth: 1,
     borderRadius: 10,
     marginBottom: 20,
     backgroundColor: TEXT_LIGHT,
-    overflow: 'hidden',
+    overflow: 'hidden', // Asegura que los bordes del picker sean redondeados
     shadowColor: 'rgba(0,0,0,0.03)',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -557,13 +494,19 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   picker: {
-    height: 55,
+    height: 55, // Altura consistente con el input
     width: '100%',
-    color: TEXT_DARK,
+    color: TEXT_DARK, // Color del texto del Picker
   },
   pickerItem: {
-    fontSize: 17,
+    fontSize: 17, // Tamaño de fuente para los ítems
     color: TEXT_DARK,
+  },
+  noProductsText: {
+    textAlign: 'center',
+    color: DISABLED_TEXT_GRAY,
+    fontSize: 16,
+    paddingVertical: 20,
   },
   input: {
     width: '100%',
@@ -625,24 +568,64 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  addButtonDisabled: {
-    backgroundColor: '#FFEBEE',
-    shadowOpacity: 0.2,
-    elevation: 2,
-  },
   addButtonText: {
     color: TEXT_DARK,
     fontSize: 19,
     fontWeight: 'bold',
   },
+  productEntryItem: {
+    backgroundColor: PRIMARY_BLUE_SOFT,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: BORDER_COLOR,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  productEntryDetails: {
+    flex: 1,
+  },
+  productEntryText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: DARK_BLUE,
+    marginBottom: 5,
+  },
+  productEntryDetail: {
+    fontSize: 15,
+    color: TEXT_DARK,
+  },
+  deleteButton: {
+    marginLeft: 15,
+    padding: 5,
+  },
+  noDataText: {
+    fontSize: 16,
+    color: TEXT_DARK,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    paddingVertical: 10,
+  },
+  infoText: {
+    fontSize: 13,
+    color: '#6c757d',
+    textAlign: 'center',
+    marginTop: 15,
+    fontStyle: 'italic',
+  },
+  bottomButtonsContainer: {
+    flexDirection: 'column',
+    marginTop: 20,
+    gap: 15,
+  },
   finalizeButton: {
-    backgroundColor: SUCCESS_GREEN,
+    backgroundColor: DARK_BLUE,
     paddingVertical: 18,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 20,
-    marginBottom: 10,
     shadowColor: 'rgba(0,0,0, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.5,
@@ -651,7 +634,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   finalizeButtonDisabled: {
-    backgroundColor: '#B2DFDB',
+    backgroundColor: DISABLED_GRAY,
     shadowOpacity: 0.2,
     elevation: 2,
   },
@@ -659,6 +642,7 @@ const styles = StyleSheet.create({
     color: TEXT_LIGHT,
     fontSize: 20,
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   goToItemsButton: {
     backgroundColor: ACCENT_BLUE,
@@ -666,8 +650,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
-    marginBottom: 20,
     shadowColor: 'rgba(0,0,0, 0.4)',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.3,
@@ -675,16 +657,11 @@ const styles = StyleSheet.create({
     elevation: 3,
     width: '100%',
   },
-  centeredButton: {
-    alignSelf: 'center',
-    maxWidth: 350,
-    minWidth: 200,
-  },
-  buttonTextCentered: {
+  goToItemsButtonText: {
+    color: TEXT_LIGHT,
+    fontSize: 19,
+    fontWeight: 'bold',
     textAlign: 'center',
-  },
-  deleteButton: {
-    padding: 5,
   },
 });
 

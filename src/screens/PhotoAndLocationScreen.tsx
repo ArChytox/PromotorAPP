@@ -16,7 +16,7 @@ import { StackScreenProps } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
 import { useVisit } from '../context/VisitContext';
 import { Commerce, PhotoEntry } from '../types/data';
-import { getCommerces } from '../utils/storage';
+// import { getCommerces } from '../utils/storage'; // ✨ ELIMINAR ESTA IMPORTACIÓN ✨
 import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'expo-camera';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -43,53 +43,52 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
   const {
     currentCommerceId,
     currentCommerceName,
+    currentCommerceAddress, // ✨ Asegúrate de que esta propiedad exista en VisitContext ✨
     photos: contextPhotos,
     addPhoto,
-    // Eliminado: location: contextLocation,
     markSectionComplete,
     resetVisit,
   } = useVisit();
 
-  const [commerce, setCommerce] = useState<Commerce | null>(null);
-  const [isLoadingCommerce, setIsLoadingCommerce] = useState<boolean>(true);
+  // Ya no necesitamos un estado `commerce` local, ni `isLoadingCommerce` para esto
+  // La información del comercio ahora proviene directamente del contexto.
 
   const photoBeforeUri = contextPhotos.find(p => p.type === 'before')?.uri || null;
   const photoAfterUri = contextPhotos.find(p => p.type === 'after')?.uri || null;
 
+  // ✨ Eliminar este useEffect para cargar detalles del comercio, ya no es necesario ✨
+  // useEffect(() => {
+  //   const fetchCommerceDetails = async () => {
+  //     try {
+  //       if (!currentCommerceId) {
+  //         Alert.alert('Error de Sesión', 'No se pudo determinar el comercio actual. Por favor, reinicia la visita.', [
+  //           { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+  //         ]);
+  //         return;
+  //       }
+  //       const storedCommerces = await getCommerces(); // ✨ ESTO ES LO QUE YA NO DEBEMOS USAR ✨
+  //       const foundCommerce = storedCommerces.find(c => c.id === currentCommerceId);
+  //       if (foundCommerce) {
+  //         setCommerce(foundCommerce);
+  //       } else {
+  //         Alert.alert('Error de Sesión', 'El comercio no se encontró. Por favor, selecciona un comercio nuevamente.', [
+  //           { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+  //         ]);
+  //       }
+  //     } catch (error) {
+  //       console.error('Error al cargar detalles del comercio:', error);
+  //       Alert.alert('Error', 'Hubo un problema al cargar los detalles del comercio.', [
+  //         { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
+  //       ]);
+  //     } finally {
+  //       setIsLoadingCommerce(false);
+  //     }
+  //   };
+  //   fetchCommerceDetails();
+  // }, [currentCommerceId, navigation, resetVisit]);
 
-  // Cargar detalles del comercio
-  useEffect(() => {
-    const fetchCommerceDetails = async () => {
-      try {
-        if (!currentCommerceId) {
-          Alert.alert('Error de Sesión', 'No se pudo determinar el comercio actual. Por favor, reinicia la visita.', [
-            { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
-          ]);
-          return;
-        }
-        const storedCommerces = await getCommerces();
-        const foundCommerce = storedCommerces.find(c => c.id === currentCommerceId);
-        if (foundCommerce) {
-          setCommerce(foundCommerce);
-        } else {
-          Alert.alert('Error de Sesión', 'El comercio no se encontró. Por favor, selecciona un comercio nuevamente.', [
-            { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
-          ]);
-        }
-      } catch (error) {
-        console.error('Error al cargar detalles del comercio:', error);
-        Alert.alert('Error', 'Hubo un problema al cargar los detalles del comercio.', [
-          { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
-        ]);
-      } finally {
-        setIsLoadingCommerce(false);
-      }
-    };
 
-    fetchCommerceDetails();
-  }, [currentCommerceId, navigation, resetVisit]);
-
-  // Solicitar permisos de cámara al montar
+  // Solicitar permisos de cámara al montar (esto sigue siendo válido)
   useEffect(() => {
     (async () => {
       const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
@@ -99,18 +98,15 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
     })();
   }, []);
 
-  // Lógica para marcar la sección como completa
-  const updateSectionStatus = useCallback(() => {
+  // Lógica para marcar la sección como completa o incompleta
+  useEffect(() => {
     const hasBothPhotos = !!(photoBeforeUri && photoAfterUri);
-    // Eliminado: const hasLocation = !!contextLocation;
-
-    // La sección 'photos_location' ahora solo depende de si ambas fotos han sido tomadas.
     markSectionComplete('photos_location', hasBothPhotos);
-  }, [photoBeforeUri, photoAfterUri, markSectionComplete]); // Eliminado: contextLocation
+  }, [photoBeforeUri, photoAfterUri, markSectionComplete]);
+
 
   // Lógica para volver a la pantalla de ítems de visita (Botón "Volver")
   const handleBackToVisitItems = useCallback(() => {
-    updateSectionStatus(); // Actualiza el estado de la sección antes de salir
     if (currentCommerceId) {
       navigation.goBack();
     } else {
@@ -118,7 +114,7 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
         { text: 'OK', onPress: () => { navigation.replace('CommerceList'); resetVisit(); } }
       ]);
     }
-  }, [navigation, currentCommerceId, resetVisit, updateSectionStatus]);
+  }, [navigation, currentCommerceId, resetVisit]);
 
   const handleTakePhoto = async (type: 'before' | 'after') => {
     try {
@@ -149,11 +145,8 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
   };
 
   const handleSaveSectionAndNavigate = useCallback(() => {
-    updateSectionStatus(); // Forzar la actualización del estado de la sección
     const hasBothPhotos = !!(photoBeforeUri && photoAfterUri);
-    // Eliminado: const hasLocation = !!contextLocation;
 
-    // La validación ahora solo es para las fotos.
     if (hasBothPhotos) {
       Alert.alert('Sección Guardada', 'Las fotos han sido registradas. Puedes continuar con la visita.');
       if (currentCommerceId) {
@@ -166,14 +159,16 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
 
       Alert.alert('Progreso Incompleto', errorMessage.trim());
     }
-  }, [photoBeforeUri, photoAfterUri, updateSectionStatus, navigation, currentCommerceId]);
+  }, [photoBeforeUri, photoAfterUri, navigation, currentCommerceId]);
 
 
-  if (isLoadingCommerce || !currentCommerceId) {
+  // ✨ Ya no necesitamos isLoadingCommerce, verificamos directamente si tenemos el ID del comercio ✨
+  if (!currentCommerceId) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={DARK_BLUE} />
-        <Text style={styles.loadingText}>Cargando información del comercio...</Text>
+        <Text style={styles.loadingText}>Verificando información del comercio...</Text>
+        <Text style={styles.loadingText}>Si esto persiste, por favor, reinicia la visita.</Text>
       </View>
     );
   }
@@ -190,7 +185,7 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Fotos para:</Text>
         <Text style={styles.commerceName}>{currentCommerceName || 'Comercio Desconocido'}</Text>
-        {commerce?.address && <Text style={styles.commerceAddress}>{commerce.address}</Text>}
+        {currentCommerceAddress && <Text style={styles.commerceAddress}>{currentCommerceAddress}</Text>}
       </View>
 
       <View style={styles.card}>
@@ -226,33 +221,6 @@ const PhotoAndLocationScreen: React.FC<PhotoAndLocationScreenProps> = ({ navigat
           </Text>
         )}
       </View>
-
-      {/* Se elimina completamente la sección de Ubicación */}
-      {/*
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Estado de Ubicación</Text>
-        <View style={styles.locationStatusContainer}>
-          <Icon
-            name={contextLocation ? "map-marker-check" : "map-marker-alert"}
-            size={40}
-            color={contextLocation ? SUCCESS_GREEN : WARNING_ORANGE}
-          />
-          <Text style={styles.locationStatusText}>
-            Ubicación: {contextLocation ? 'Capturada' : 'Pendiente'}
-          </Text>
-          {contextLocation && (
-            <Text style={styles.locationDetailsText}>
-              Lat: {contextLocation.latitude.toFixed(4)}, Lon: {contextLocation.longitude.toFixed(4)}
-            </Text>
-          )}
-          {!contextLocation && (
-            <Text style={styles.warningText}>
-              La ubicación se intenta capturar automáticamente al iniciar la visita. Asegúrate de tener permisos de ubicación.
-            </Text>
-          )}
-        </View>
-      </View>
-      */}
 
       <TouchableOpacity
         style={[styles.finalizeButton, !isSectionFullyComplete && styles.finalizeButtonDisabled, styles.centeredButton]}
@@ -291,6 +259,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: TEXT_DARK,
     marginTop: 10,
+    textAlign: 'center', // Centrar el texto para una mejor visualización
   },
   header: {
     backgroundColor: PHOTO_SECTION_BLUE,
@@ -475,7 +444,6 @@ const styles = StyleSheet.create({
   buttonTextCentered: {
     textAlign: 'center',
   },
-  // Eliminados: locationStatusContainer, locationStatusText, locationDetailsText
 });
 
 export default PhotoAndLocationScreen;

@@ -1,5 +1,5 @@
 // src/screens/MyVisitsScreen.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, ReactElement, JSXElementConstructor } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
   Platform,
   StatusBar,
+  ListRenderItemInfo,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
@@ -21,13 +22,15 @@ import {
   StoredVisitPhoto,
   StoredProductVisit,
   StoredCompetitorProductVisit,
-  Commerce // Para los comercios
-} from '../types/data'; // Asegúrate de que estos tipos estén en data.ts y coincidan con tu DB
+  Commerce
+} from '../types/data';
 
 // Importa la instancia de Supabase
 import { supabase } from '../services/supabase';
+// ¡IMPORTA EL HOOK useAuth AQUÍ!
+import { useAuth } from '../context/AuthContext'; // <--- ¡Asegúrate que esta ruta es correcta!
 
-// --- CONSTANTES DE COLORES (NUEVAS: Extraídas de StyleSheet para consistencia) ---
+// --- CONSTANTES DE COLORES ---
 const PRIMARY_BACKGROUND = '#e9eff4';
 const HEADER_BLUE = '#007bff';
 const TEXT_DARK = '#333';
@@ -42,25 +45,23 @@ const SUBTLE_TEXT_GRAY = '#666';
 const DATETIME_TEXT_GRAY = '#888';
 const LOCATION_TEXT_GRAY = '#555';
 
-// Tipo de visita para esta pantalla, que agrupa toda la información relacionada
-// Necesitamos una estructura que refleje lo que queremos mostrar, combinando los datos de Supabase
 interface DisplayVisit {
+  _hasPhotoAfter: React.JSX.Element;
+  _hasPhotoBefore: React.JSX.Element;
   id: string;
   commerce_id: string;
   commerce_name: string;
-  timestamp: string; // Fecha de inicio de visita
+  timestamp: string;
   end_timestamp: string;
   promoter_id: string | null;
   notes: string | null;
   is_synced: boolean;
-  section_status: any; // O el tipo VisitSectionState si se mapea
-  // Información relacionada, obtenida de las tablas unidas
+  section_status: any;
   location?: StoredVisitLocation;
   photos: StoredVisitPhoto[];
   product_visits: StoredProductVisit[];
   competitor_product_visits: StoredCompetitorProductVisit[];
-  // Información del comercio (obtenida de la tabla 'commerces')
-  commerce_address?: string; // Para mostrar la dirección del comercio
+  commerce_address?: string;
 }
 
 type MyVisitsScreenProps = StackScreenProps<AppStackParamList, 'MyVisits'>;
@@ -70,12 +71,23 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
   const [commercesMap, setCommercesMap] = useState<Map<string, Commerce>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
 
+  // 1. Obtener el usuario autenticado del AuthContext
+  // ¡Ahora también obtenemos 'logout' del contexto!
+  const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth(); // <--- CAMBIO AQUÍ
+
   const fetchVisitsAndCommerces = useCallback(async () => {
+    // Si todavía estamos cargando la autenticación o no hay usuario autenticado, no hacemos la llamada
+    if (authLoading || !isAuthenticated || !user?.id) {
+      console.log('DEBUG: Auth not ready or user not authenticated. Skipping fetch visits.');
+      setIsLoading(false); // Asegúrate de que el loading se detiene si no hay usuario
+      return;
+    }
+
     setIsLoading(true);
     try {
       // 1. Cargar todos los comercios primero para tener el mapa de nombres/direcciones
       const { data: commercesData, error: commercesError } = await supabase
-        .from('commerces') // Asegúrate de que 'commerces' sea el nombre correcto de tu tabla de comercios
+        .from('commerces')
         .select('*');
 
       if (commercesError) {
@@ -87,8 +99,7 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
       commercesData.forEach(c => map.set(c.id, c));
       setCommercesMap(map);
 
-      // 2. Cargar las visitas con sus relaciones
-      // Seleccionamos la visita principal y traemos los datos de las tablas relacionadas
+      // 2. Cargar las visitas con sus relaciones, APLICANDO EL FILTRO DEL PROMOTOR
       const { data: visitsData, error: visitsError } = await supabase
         .from('visits')
         .select(`
@@ -98,25 +109,21 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
           product_visits(*),
           competitor_product_visits(*)
         `)
-        .order('timestamp', { ascending: false }); // Ordenar por fecha más reciente primero
+        .eq('promoter_id', user.id) // <--- ¡ESTE ES EL FILTRO CLAVE!
+        .order('timestamp', { ascending: false });
 
       if (visitsError) {
         console.error('Error fetching visits:', visitsError.message);
         throw new Error('No se pudieron cargar las visitas.');
       }
 
-      // Mapear los datos para adaptarlos al tipo DisplayVisit y añadir la dirección del comercio
       const formattedVisits: DisplayVisit[] = visitsData.map(visit => {
         const commerceDetails = map.get(visit.commerce_id);
-        
-        // Supabase devuelve las relaciones como arrays, incluso si solo hay una.
-        // Para location, si esperas una sola, toma la primera.
+
         const locationEntry = visit.visit_locations && visit.visit_locations.length > 0
           ? visit.visit_locations[0]
           : undefined;
 
-        // photoBeforeUri y photoAfterUri no existen directamente en la DB.
-        // Los inferimos de la lista de fotos.
         const hasPhotoBefore = visit.visit_photos?.some((photo: StoredVisitPhoto) => photo.type === 'before');
         const hasPhotoAfter = visit.visit_photos?.some((photo: StoredVisitPhoto) => photo.type === 'after');
 
@@ -129,13 +136,13 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
           promoter_id: visit.promoter_id,
           notes: visit.notes,
           is_synced: visit.is_synced,
-          section_status: visit.section_status, // Mantenemos el JSONB tal cual
-          location: locationEntry, // La primera ubicación (si existe)
+          section_status: visit.section_status,
+          location: locationEntry,
           photos: visit.visit_photos || [],
           product_visits: visit.product_visits || [],
           competitor_product_visits: visit.competitor_product_visits || [],
-          commerce_address: commerceDetails?.address || null, // Añadimos la dirección del comercio
-          _hasPhotoBefore: hasPhotoBefore, // Campos auxiliares para renderizado
+          commerce_address: commerceDetails?.address,
+          _hasPhotoBefore: hasPhotoBefore,
           _hasPhotoAfter: hasPhotoAfter,
         };
       });
@@ -145,76 +152,95 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
     } catch (error: any) {
       console.error('Error loading visits or commerces:', error.message || error);
       Alert.alert('Error', `No se pudieron cargar las visitas o comercios: ${error.message || 'Error desconocido'}`);
+      // Aquí, si hay un error en la carga y el usuario estaba autenticado, podría significar un problema de sesión
+      // Podrías considerar llamar a logout() aquí también, dependiendo de la severidad del error.
+      // Por ahora, solo informamos.
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user?.id, isAuthenticated, authLoading]); // Asegúrate de que las dependencias de useCallback estén correctas
 
   useEffect(() => {
-    // Carga inicial y recarga al enfocar la pantalla
-    fetchVisitsAndCommerces();
-
     const unsubscribe = navigation.addListener('focus', () => {
-      console.log('DEBUG: Screen focused, refetching visits.');
+      console.log('DEBUG: Screen focused or mounted, refetching visits.');
+      // Asegúrate de que fetchVisitsAndCommerces se llama solo si user?.id tiene un valor válido
+      // o si la lógica interna de fetchVisitsAndCommerces lo maneja.
+      // La condición 'if (authLoading || !isAuthenticated || !user?.id)' dentro de fetchVisitsAndCommerces ya lo hace.
       fetchVisitsAndCommerces();
     });
 
     return unsubscribe;
   }, [fetchVisitsAndCommerces, navigation]);
 
-
-  const renderVisitItem = ({ item }: { item: DisplayVisit }) => {
-    const visitDate = new Date(item.timestamp);
-
-    return (
-      <View style={styles.visitItem}>
-        <Text style={styles.visitCommerceName}>
-          Visita a: **{item.commerce_name}**
-        </Text>
-        {item.commerce_address && <Text style={styles.visitCommerceAddress}>{item.commerce_address}</Text>}
-        <Text style={styles.visitDateTime}>
-          Fecha: {visitDate.toLocaleDateString()} Hora: {visitDate.toLocaleTimeString()}
-        </Text>
-        {item.location && (
-          <Text style={styles.visitLocation}>
-            Ubicación: {item.location.city_name || 'Desconocida'} ({item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)})
-          </Text>
-        )}
-        <Text style={styles.visitSummary}>
-          Productos Chispa registrados: {item.product_visits.length}
-        </Text>
-        <Text style={styles.visitSummary}>
-          Productos Competencia registrados: {item.competitor_product_visits.length}
-        </Text>
-        {/* Usar los campos auxiliares para las fotos */}
-        {item.photos?.some(p => p.type === 'before') && ( // Si existe una foto con type 'before'
-            <Text style={styles.photoIndicator}>✔ Foto ANTES</Text>
-        )}
-        {item.photos?.some(p => p.type === 'after') && ( // Si existe una foto con type 'after'
-            <Text style={styles.photoIndicator}>✔ Foto DESPUÉS</Text> 
-        )}
-        {item.photos?.some(p => p.type === 'shelf') && (
-            <Text style={styles.photoIndicator}>✔ Foto EXHIBIDOR</Text>
-        )}
-        {item.photos?.some(p => p.type === 'other') && (
-            <Text style={styles.photoIndicator}>✔ Otra FOTO</Text>
-        )}
-      </View>
-    );
-  };
-
-  if (isLoading) {
+  // Si la autenticación aún está en progreso, muestra un loading genérico
+  if (authLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={HEADER_BLUE} />
-        <Text style={styles.loadingText}>Cargando visitas...</Text>
+        <Text style={styles.loadingText}>Verificando autenticación...</Text>
       </View>
     );
   }
 
+  // Si el usuario no está autenticado después de cargar
+  if (!isAuthenticated || !user?.id) {
+    return (
+      <View style={styles.noVisitsContainer}>
+        <Text style={styles.noVisitsText}>Debes iniciar sesión para ver tus visitas.</Text>
+        <TouchableOpacity
+          style={styles.goToCommercesButtonNoVisits}
+          onPress={() => {
+            // ¡CAMBIO CLAVE AQUÍ!
+            // En lugar de navigation.navigate('Login'), llama a logout.
+            // Esto actualizará el estado de autenticación y AppContent redirigirá.
+            logout();
+          }}
+        >
+          <Text style={styles.goToCommercesButtonText}>Ir a Iniciar Sesión</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Si está cargando las visitas pero ya se autenticó
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={HEADER_BLUE} />
+        <Text style={styles.loadingText}>Cargando tus visitas...</Text>
+      </View>
+    );
+  }
+  
+  // ¡ATENCIÓN! Falta la implementación de renderVisitItem.
+  // Esto causará un error en tiempo de ejecución si la lista tiene elementos.
+  function renderVisitItem(info: ListRenderItemInfo<DisplayVisit>): ReactElement<unknown, string | JSXElementConstructor<any>> | null {
+    // throw new Error('Function not implemented.'); // ¡ELIMINA ESTA LÍNEA!
+    const visit = info.item;
+    // Aquí deberías retornar el JSX para renderizar un solo elemento de la visita.
+    // Por ejemplo:
+    return (
+      <TouchableOpacity
+        style={styles.visitItem}
+        onPress={() => navigation.navigate('VisitSummary', { visitId: visit.id })}
+      >
+        <Text style={styles.visitCommerceName}>{visit.commerce_name}</Text>
+        {visit.commerce_address && <Text style={styles.visitCommerceAddress}>{visit.commerce_address}</Text>}
+        <Text style={styles.visitDateTime}>
+          {new Date(visit.timestamp).toLocaleString()} - {new Date(visit.end_timestamp).toLocaleString()}
+        </Text>
+        {/* Agrega más detalles de la visita aquí si es necesario */}
+        {visit.notes && <Text style={styles.visitSummary}>Notas: {visit.notes}</Text>}
+        {visit._hasPhotoBefore && <Text style={styles.photoIndicator}>Foto antes ✅</Text>}
+        {visit._hasPhotoAfter && <Text style={styles.photoIndicator}>Foto después ✅</Text>}
+      </TouchableOpacity>
+    );
+  }
+
+
+  // El resto de tu componente (renderizado de la lista)
   return (
     <View style={styles.container}>
-      {/* Ajustar la StatusBar para iOS */}
       {Platform.OS === 'ios' && <StatusBar barStyle="light-content" />}
       
       <View style={styles.header}>
@@ -229,7 +255,7 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
 
       {visits.length === 0 ? (
         <View style={styles.noVisitsContainer}>
-          <Text style={styles.noVisitsText}>Aún no hay visitas registradas.</Text>
+          <Text style={styles.noVisitsText}>Aún no tienes visitas registradas.</Text> 
           <TouchableOpacity
             style={styles.goToCommercesButtonNoVisits}
             onPress={() => navigation.navigate('CommerceList')}
@@ -240,7 +266,7 @@ const MyVisitsScreen: React.FC<MyVisitsScreenProps> = ({ navigation }) => {
       ) : (
         <FlatList
           data={visits}
-          renderItem={renderVisitItem}
+          renderItem={renderVisitItem} // Asegúrate de que renderVisitItem esté implementado
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
         />
@@ -287,7 +313,7 @@ const styles = StyleSheet.create({
     color: TEXT_LIGHT,
     flex: 1,
     textAlign: 'center',
-    marginRight: 60,
+    marginRight: 60, // Ajuste para el botón de volver
   },
   goToCommercesButton: {
     backgroundColor: SUCCESS_GREEN,

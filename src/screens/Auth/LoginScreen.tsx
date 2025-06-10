@@ -4,7 +4,7 @@ import {
   View,
   Text,
   TextInput,
-  Button, // Aunque usaremos TouchableOpacity para el botón principal, lo mantengo por si lo usas en otro lado
+  Button,
   StyleSheet,
   Alert,
   TouchableOpacity,
@@ -13,29 +13,27 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { useAuth } from '../../context/AuthContext'; // Asegúrate que esta ruta es correcta
+import { useAuth } from '../../context/AuthContext';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { AuthStackParamList } from '../../navigation/AuthNavigator'; // Importa AuthStackParamList desde la navegación
+import { AuthStackParamList } from '../../navigation/AuthNavigator';
 
-// Define el tipo para las props de navegación, importante para TypeScript
 type LoginScreenNavigationProp = StackNavigationProp<AuthStackParamList, 'Login'>;
 
 interface LoginScreenProps {
   navigation: LoginScreenNavigationProp;
 }
 
-// Asegúrate de pasar 'navigation' como prop
 const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
-  const [email, setEmail] = useState<string>(''); // Cambiado de 'username' a 'email'
+  const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const { login, isLoading } = useAuth();
 
   const handleLogin = async () => {
-    if (!email || !password) { // Usamos email en lugar de username
+    if (!email || !password) {
       Alert.alert('Error de inicio de sesión', 'Por favor, ingresa tu email y contraseña.');
       return;
     }
-    await login(email, password); // Llama a login con email
+    await login(email, password);
   };
 
   return (
@@ -55,14 +53,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 
           <TextInput
             style={styles.input}
-            placeholder="Email" // Cambiado a Email
+            placeholder="Email"
             placeholderTextColor="#999"
-            value={email} // Usamos email
-            onChangeText={setEmail} // Usamos setEmail
+            value={email}
+            onChangeText={setEmail}
             autoCapitalize="none"
-            keyboardType="email-address" // Importante para teclados de email
+            keyboardType="email-address"
             returnKeyType="next"
-            // onSubmitEditing={() => console.log('Focus next input')} // Si tienes múltiples inputs
           />
 
           <TextInput
@@ -86,14 +83,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
             </Text>
           </TouchableOpacity>
 
-          {/* BOTÓN PARA CREAR UNA NUEVA CUENTA */}
+          {/* BOTÓN PARA CREAR UNA NUEVA CUENTA - Deshabilitado/Comentado */}
+          {/*
           <TouchableOpacity
-            onPress={() => navigation.navigate('Register')} // Navega a la pantalla 'Register'
-            style={styles.createAccountButton} // Nuevo estilo para diferenciar
+            onPress={() => navigation.navigate('Register')}
+            style={styles.createAccountButton}
             disabled={isLoading}
           >
             <Text style={styles.createAccountButtonText}>Crear una nueva cuenta</Text>
           </TouchableOpacity>
+          */}
 
           <TouchableOpacity style={styles.forgotPasswordButton}>
             <Text style={styles.forgotPasswordText}>¿Olvidaste tu contraseña?</Text>
@@ -195,15 +194,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   createAccountButton: { // Nuevo estilo para el botón de crear cuenta
-    marginTop: 5, // Espacio entre el botón de login y este
-    marginBottom: 10, // Espacio antes del botón de olvidar contraseña
+    marginTop: 5,
+    marginBottom: 10,
     paddingVertical: 10,
     paddingHorizontal: 15,
     borderRadius: 5,
-    // backgroundColor: '#0e43f1', // Podrías darle un fondo diferente o dejarlo transparente
   },
   createAccountButtonText: {
-    color: '#007bff', // Un azul estándar para enlaces
+    color: '#007bff',
     fontSize: 15,
     textDecorationLine: 'underline',
   },

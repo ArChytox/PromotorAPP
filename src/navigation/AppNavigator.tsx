@@ -3,30 +3,26 @@ import { createStackNavigator } from '@react-navigation/stack';
 
 // Importa tus pantallas existentes
 import CommerceListScreen from '../screens/CommerceListScreen';
-import AddEditCommerceScreen from '../screens/AddEditCommerceScreen';
 import MyVisitsScreen from '../screens/MyVisitsScreen';
 
-// Importa las pantallas para el flujo de la visita
+// Importa las pantallas para el flujo de visita
 import VisitItemsScreen from '../screens/VisitItemsScreen';
-import VisitScreen from '../screens/VisitScreen'; // Asumo que VisitScreen es para 'Productos Chispa'
+import VisitScreen from '../screens/VisitScreen'; // Pantalla para "Productos Chispa"
 import CompetitorScreen from '../screens/CompetitorScreen';
 import PhotoAndLocationScreen from '../screens/PhotoAndLocationScreen';
-import VisitSummaryScreen from '../screens/VisitSummaryScreen'; // <--- NUEVA IMPORTACIÓN
+import VisitSummaryScreen from '../screens/VisitSummaryScreen'; 
 
-// Define los parámetros esperados para cada ruta.
+// Define los parámetros esperados para cada ruta
 export type AppStackParamList = {
     CommerceList: undefined;
-    // Permite que commerceId sea opcional para "añadir", o que el objeto params sea undefined
-    AddEditCommerce: { commerceId?: string } | undefined;
     MyVisits: undefined;
 
-    // --- Pantallas para el Flujo de Visitas (commerceId ahora es REQUERIDO en VisitItems) ---
-    // Esto asume que una visita siempre se inicia para un comercio específico
-    VisitItems: { commerceId: string; commerceName: string }; // <--- Asegúrate de que commerceName también esté aquí si lo usas
-    Visit: { commerceId: string };
+    // --- Pantallas para el flujo de visitas ---
+    VisitItems: { commerceId: string; commerceName: string };
+    Visit: { commerceId: string }; // Productos Chispa
     Competitor: { commerceId: string };
     PhotoAndLocation: { commerceId: string };
-    VisitSummary: undefined; // <--- NUEVA PANTALLA: No necesita parámetros específicos de la ruta
+    VisitSummary: undefined; // Resumen de la visita, no necesita parámetros
 };
 
 const Stack = createStackNavigator<AppStackParamList>();
@@ -34,11 +30,13 @@ const Stack = createStackNavigator<AppStackParamList>();
 const AppNavigator = () => {
     return (
         <Stack.Navigator initialRouteName="CommerceList" screenOptions={{ headerShown: false }}>
+            {/* Pantalla principal */}
             <Stack.Screen name="CommerceList" component={CommerceListScreen} />
-            <Stack.Screen name="AddEditCommerce" component={AddEditCommerceScreen} />
+
+            {/* Mis Visitas */}
             <Stack.Screen name="MyVisits" component={MyVisitsScreen} />
 
-            {/* --- Pantallas para el Flujo de Visitas --- */}
+            {/* --- Flujo de Visita --- */}
             <Stack.Screen
                 name="VisitItems"
                 component={VisitItemsScreen}
@@ -60,7 +58,7 @@ const AppNavigator = () => {
                 options={{ title: 'Fotos y Ubicación' }}
             />
             <Stack.Screen
-                name="VisitSummary" // <--- NUEVA PANTALLA AÑADIDA
+                name="VisitSummary"
                 component={VisitSummaryScreen}
                 options={{ title: 'Resumen de Visita' }}
             />

@@ -1,7 +1,6 @@
-// @ts-nocheck
 // PromotorAPP/src/services/dataService.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from './supabase';
+import { supabase } from './supabase'; // Asegúrate de que esta ruta sea correcta y que supabase esté inicializado.
 import NetInfo from '@react-native-community/netinfo';
 
 const LOCAL_STORAGE_KEY_VISITS = '@promotor_visits';
@@ -9,7 +8,143 @@ const LOCAL_STORAGE_KEY_COMMERCES = '@promotor_commerces';
 
 console.log("DEBUG [dataService]: Valor de 'supabase' después de la importación:", supabase);
 
-// --- Funciones auxiliares para la sincronización inmediata ---
+// --- Funciones auxiliares para operaciones locales de AsyncStorage ---
+
+/**
+ * Obtiene todos los comercios guardados localmente desde AsyncStorage.
+ * @returns {Promise<Array<object>>} - Un array de objetos de comercio.
+ */
+const getLocalCommerces = async () => {
+    try {
+        const jsonValue = await AsyncStorage.getItem(LOCAL_STORAGE_KEY_COMMERCES);
+        return jsonValue != null ? JSON.parse(jsonValue) : [];
+    } catch (error) {
+        console.error('Error al obtener comercios locales:', error);
+        return [];
+    }
+};
+
+/**
+ * Obtiene todas las visitas guardadas localmente desde AsyncStorage.
+ * @returns {Promise<Array<object>>} - Un array de objetos de visita.
+ */
+const getLocalVisits = async () => {
+    try {
+        const jsonValue = await AsyncStorage.getItem(LOCAL_STORAGE_KEY_VISITS);
+        return jsonValue != null ? JSON.parse(jsonValue) : [];
+    } catch (error) {
+        console.error('Error al obtener visitas locales:', error);
+        return [];
+    }
+};
+
+/**
+ * Actualiza un comercio localmente con su ID de Supabase y lo marca como sincronizado.
+ * Si el comercio ya tenía un ID de Supabase, lo actualiza. Si no, lo asigna.
+ * @param {string} localId - El ID local del comercio a actualizar.
+ * @param {string} supabaseId - El ID que Supabase le asignó al comercio.
+ */
+const updateLocalCommerceWithSupabaseId = async (localId, supabaseId) => {
+    try {
+        let currentCommerces = await getLocalCommerces();
+        currentCommerces = currentCommerces.map(commerce =>
+            commerce.id === localId ? { ...commerce, sincronizado: true, supabaseId: supabaseId, id: supabaseId } : commerce
+        );
+        await AsyncStorage.setItem(LOCAL_STORAGE_KEY_COMMERCES, JSON.stringify(currentCommerces));
+        console.log(`Comercio local original con ID "${localId}" actualizado con Supabase ID: "${supabaseId}" y marcado como sincronizado.`);
+    } catch (error) {
+        console.error('Error al actualizar comercio local con ID de Supabase:', error);
+    }
+};
+
+/**
+ * Marca una visita local como sincronizada en AsyncStorage.
+ * @param {string} localId - El ID local de la visita a actualizar.
+ */
+const markVisitAsSynced = async (localId) => {
+    try {
+        let currentVisits = await getLocalVisits();
+        currentVisits = currentVisits.map(visit =>
+            visit.id === localId ? { ...visit, sincronizado: true } : visit
+        );
+        await AsyncStorage.setItem(LOCAL_STORAGE_KEY_VISITS, JSON.stringify(currentVisits));
+        console.log(`Visita con ID ${localId} marcada como sincronizada.`);
+    } catch (error) {
+        console.error('Error al marcar visita como sincronizada:', error);
+    }
+};
+
+/**
+ * Función auxiliar para agregar o actualizar un comercio en el almacenamiento local.
+ * Es útil cuando obtienes un comercio de Supabase y quieres asegurarte de que
+ * esté actualizado en tu caché local.
+ */
+const upsertLocalCommerce = async (newOrUpdatedCommerce) => {
+    try {
+        let currentCommerces = await getLocalCommerces();
+        // Buscar por id local o por supabaseId si ya está sincronizado
+        const index = currentCommerces.findIndex(c =>
+            String(c.id) === String(newOrUpdatedCommerce.id) ||
+            (newOrUpdatedCommerce.supabaseId && String(c.supabaseId) === String(newOrUpdatedCommerce.supabaseId))
+        );
+
+        if (index > -1) {
+            // Actualizar existente, manteniendo las propiedades que no vienen de Supabase
+            currentCommerces[index] = {
+                ...currentCommerces[index],
+                ...newOrUpdatedCommerce,
+                sincronizado: true, // Asegura que esté marcado como sincronizado
+            };
+            console.log(`Comercio ${newOrUpdatedCommerce.id || newOrUpdatedCommerce.supabaseId} actualizado en caché local.`);
+        } else {
+            // Añadir nuevo
+            currentCommerces.push({ ...newOrUpdatedCommerce, sincronizado: true });
+            console.log(`Comercio ${newOrUpdatedCommerce.id || newOrUpdatedCommerce.supabaseId} añadido a caché local.`);
+        }
+        await AsyncStorage.setItem(LOCAL_STORAGE_KEY_COMMERCES, JSON.stringify(currentCommerces));
+    } catch (error) {
+        console.error('Error al agregar/actualizar comercio en caché local:', error);
+    }
+};
+
+/**
+ * Obtiene un comercio específico del AsyncStorage por su ID (local o Supabase).
+ * @param {string} commerceId - El ID del comercio a buscar.
+ * @returns {Promise<object | null>} - El objeto comercio si se encuentra, o null.
+ */
+const getLocalCommerceById = async (commerceId) => {
+    try {
+        const allLocalCommerces = await getLocalCommerces();
+        const foundCommerce = allLocalCommerces.find(c => String(c.id) === String(commerceId) || String(c.supabaseId) === String(commerceId));
+        if (foundCommerce) {
+            console.log(`Comercio con ID ${commerceId} encontrado en caché local.`);
+        } else {
+            console.warn(`Comercio con ID ${commerceId} NO ENCONTRADO en caché local.`);
+        }
+        return foundCommerce || null;
+    } catch (error) {
+        console.error('Error al obtener comercio localmente por ID:', error);
+        return null;
+    }
+};
+
+/**
+ * Obtiene comercios del AsyncStorage que pertenecen a una ruta específica.
+ * @param {string} routeId - El ID de la ruta.
+ * @returns {Promise<Array<object>>} - Un array de objetos de comercio.
+ */
+const getLocalCommercesForRoute = async (routeId) => {
+    try {
+        const allLocalCommerces = await getLocalCommerces();
+        // Filtra los comercios locales para incluir solo los de la ruta especificada
+        return allLocalCommerces.filter(commerce => commerce.route_id === routeId);
+    } catch (error) {
+        console.error('Error al obtener comercios locales por ruta:', error);
+        return [];
+    }
+};
+
+// --- Funciones para sincronización individual ---
 
 /**
  * Intenta sincronizar un comercio individual con Supabase.
@@ -55,6 +190,25 @@ const syncSingleCommerce = async (commerce) => {
 
         if (error) {
             console.error('Error al insertar/actualizar comercio individual en Supabase:', error);
+            // Si el error es por duplicado (ej. se creó en otro lado entre fetch y sync)
+            if (error.code === '23505' && error.details.includes('commerce_name_address_key')) { // Ajusta el nombre de la restricción única si es diferente
+                console.warn(`Comercio con nombre y dirección duplicados. Asumiendo que ya existe en Supabase: ${commerce.name}, ${commerce.address}`);
+                // Intentar buscar el comercio existente para obtener su supabaseId
+                const { data: existingCommerce, error: searchError } = await supabase
+                    .from('commerces')
+                    .select('id')
+                    .eq('name', commerce.name)
+                    .eq('address', commerce.address)
+                    .single();
+
+                if (existingCommerce) {
+                    await updateLocalCommerceWithSupabaseId(commerce.id, existingCommerce.id);
+                    return true;
+                } else {
+                    console.error('No se pudo encontrar el comercio duplicado en Supabase. Se mantiene sin sincronizar localmente.');
+                    return false;
+                }
+            }
             return false;
         } else {
             const syncedCommerceSupabaseId = data.id;
@@ -98,12 +252,20 @@ const syncSingleVisit = async (visit, localCommerces) => {
             console.log(`DEBUG: Visita ${visit.id}: commerceId "${visit.commerceId}" no es local. Usando tal cual.`);
         }
 
+        // Antes de insertar la visita principal, verificar si ya existe usando el id local
+        // Esto es una estrategia simple para evitar duplicados si la app se reinicia y se intenta resincronizar lo mismo.
+        // En Supabase no se puede insertar con un ID, el ID se autogenera.
+        // La clave única debería ser una combinación de commerce_id, timestamp, promoter_id para visitas.
+        // Asumo que el `visit.id` local NO se usa para la PK de Supabase.
+        // Si tienes una clave única diferente en Supabase (ej: (commerce_id, timestamp, promoter_id)),
+        // entonces el error '23505' se activará por esa clave.
+
         const { data: visitData, error: visitError } = await supabase
             .from('visits')
             .insert({
                 commerce_id: finalCommerceIdForSupabase,
                 commerce_name: visit.commerceName,
-                timestamp: visit.timestamp, // Este valor ahora se garantiza que está en UTC
+                timestamp: visit.timestamp,
                 promoter_id: visit.promoterId,
                 product_entries: visit.productEntries || [],
                 competitor_entries: visit.competitorEntries || [],
@@ -118,7 +280,7 @@ const syncSingleVisit = async (visit, localCommerces) => {
 
         if (visitError) {
             if (visitError.code === '23505') { // Código para duplicado (primary key/unique constraint violation)
-                console.warn(`Visita con ID local "${visit.id}" ya parece existir en Supabase (error: ${visitError.message}).`);
+                console.warn(`Visita con ID local "${visit.id}" ya parece existir en Supabase (error: ${visitError.message}). Marcando como sincronizada.`);
                 await markVisitAsSynced(visit.id); // Si ya existe, asumimos que está sincronizada
                 return true;
             }
@@ -163,29 +325,32 @@ const syncSingleVisit = async (visit, localCommerces) => {
         }
 
         // --- INSERCIÓN DE FOTOS (visit_photos) ---
-        if (visit.photos && visit.photos.length > 0) {
-            for (const photoUri of visit.photos) {
-                const { error: photoError } = await supabase
-                    .from('visit_photos')
-                    .insert({
-                        visit_id: supabaseVisitId,
-                        photo_url: photoUri,
-                        timestamp: visit.timestamp, // Asegúrate de que este timestamp también sea UTC
-                    });
-                if (photoError) console.error('Error al insertar visit_photo:', photoError);
-                else console.log('Visit_photo insertada con éxito para visita:', supabaseVisitId);
-            }
+        // Asumiendo que `visit.photos` contiene URIs de las fotos cargadas a un bucket de Supabase
+        // o si es una lista de URIs locales que deben ser procesadas/subidas antes por otra función.
+        // Si `photo_before_uri` y `photo_after_uri` son las principales, asegúrate de que se inserten.
+        // Aquí se asume que `visit.photos` es una lista de URIs secundarias o adicionales.
+        const allPhotoUris = [visit.photo_before_uri, visit.photo_after_uri, ...(visit.photos || [])].filter(Boolean);
+
+        if (allPhotoUris.length > 0) {
+            const photoInserts = allPhotoUris.map(uri => ({
+                visit_id: supabaseVisitId,
+                photo_url: uri,
+                timestamp: visit.timestamp, // Usa el timestamp de la visita
+            }));
+            const { error: photosError } = await supabase.from('visit_photos').insert(photoInserts);
+            if (photosError) console.error('Error al insertar visit_photos:', photosError);
+            else console.log('Visit_photos insertadas con éxito para visita:', supabaseVisitId);
         }
 
         // --- INSERCIÓN DE UBICACIÓN (visit_locations) ---
-        if (visit.location) {
+        if (visit.location && visit.location.latitude && visit.location.longitude) { // Asegura que haya datos de latitud/longitud
             const { error: locationError } = await supabase
                 .from('visit_locations')
                 .insert({
                     visit_id: supabaseVisitId,
                     latitude: visit.location.latitude,
                     longitude: visit.location.longitude,
-                    timestamp: visit.location.timestamp || visit.timestamp, // Asegúrate de que este timestamp también sea UTC, o usa el de la visita
+                    timestamp: visit.location.timestamp || visit.timestamp, // Usa timestamp de location o de visita
                     accuracy: visit.location.accuracy,
                     altitude: visit.location.altitude,
                     city_name: visit.location.cityName,
@@ -204,8 +369,7 @@ const syncSingleVisit = async (visit, localCommerces) => {
     }
 };
 
-
-// --- Modificaciones en saveCommerceLocally y saveVisitLocally ---
+// --- Funciones principales exportadas ---
 
 /**
  * Guarda un nuevo comercio localmente en AsyncStorage y opcionalmente lo sincroniza si hay conexión.
@@ -215,15 +379,16 @@ const syncSingleVisit = async (visit, localCommerces) => {
  * @param {string} promoterRouteId - El ID de la ruta del promotor que está creando el comercio.
  * @returns {Promise<object>} - El comercio guardado con el estado de sincronización.
  */
-export const saveCommerceLocally = async (commerceData, isConnected, isAuthenticated, promoterRouteId) => {
+const saveCommerceLocally = async (commerceData, isConnected, isAuthenticated, promoterRouteId) => {
     try {
         const currentCommerces = await getLocalCommerces();
         const newCommerce = {
             ...commerceData,
             id: commerceData.id || `local-commerce-${Date.now()}`,
             sincronizado: false, // Siempre se guarda como NO sincronizado inicialmente
-            supabaseId: undefined,
+            supabaseId: undefined, // Se establecerá después de la sincronización
             route_id: promoterRouteId, // Asigna el route_id al comercio local
+            createdAt: commerceData.createdAt || new Date().toISOString(), // Asegura un timestamp
         };
         const updatedCommerces = [...currentCommerces, newCommerce];
         await AsyncStorage.setItem(LOCAL_STORAGE_KEY_COMMERCES, JSON.stringify(updatedCommerces));
@@ -234,9 +399,10 @@ export const saveCommerceLocally = async (commerceData, isConnected, isAuthentic
             console.log(`[dataService] Conexión (${isConnected}) y autenticación (${isAuthenticated}) detectadas. Intentando sincronización inmediata de comercio.`);
             const syncSuccess = await syncSingleCommerce(newCommerce);
             if (syncSuccess) {
+                // Refresca el comercio local después de la sincronización para obtener el supabaseId actualizado
                 const updatedCommercesAfterSync = await getLocalCommerces();
-                const syncedCommerce = updatedCommercesAfterSync.find(c => c.id === newCommerce.id);
-                return syncedCommerce || { ...newCommerce, sincronizado: true }; // Fallback
+                const syncedCommerce = updatedCommercesAfterSync.find(c => c.id === newCommerce.id); // Ahora newCommerce.id podría ser el supabaseId
+                return syncedCommerce || { ...newCommerce, sincronizado: true }; // Fallback en caso de que no se encuentre (poco probable)
             }
         } else {
             console.log(`[dataService] Sincronización inmediata de comercio NO intentada. Conectado: ${isConnected}, Autenticado: ${isAuthenticated}.`);
@@ -255,7 +421,7 @@ export const saveCommerceLocally = async (commerceData, isConnected, isAuthentic
  * @param {boolean} isAuthenticated - Estado actual de autenticación (desde useAuth).
  * @returns {Promise<object>} - La visita guardada con el estado de sincronización.
  */
-export const saveVisitLocally = async (visitData, isConnected, isAuthenticated) => {
+const saveVisitLocally = async (visitData, isConnected, isAuthenticated) => {
     try {
         const currentVisits = await getLocalVisits();
         const existingVisitIndex = currentVisits.findIndex(v => v.id === visitData.id);
@@ -284,7 +450,7 @@ export const saveVisitLocally = async (visitData, isConnected, isAuthenticated) 
             };
             currentVisits.push(newVisit);
         }
-        
+
         await AsyncStorage.setItem(LOCAL_STORAGE_KEY_VISITS, JSON.stringify(currentVisits));
         console.log('Visita guardada localmente:', newVisit);
 
@@ -308,7 +474,69 @@ export const saveVisitLocally = async (visitData, isConnected, isAuthenticated) 
     }
 };
 
-// --- NUEVA FUNCIÓN: getCommercesByRoute ---
+/**
+ * Obtiene un comercio específico por su ID de Supabase.
+ * Prioriza la búsqueda en Supabase si hay conexión. Si falla o no hay conexión,
+ * busca en el caché local.
+ * @param {string} commerceId - El ID único del comercio a buscar.
+ * @returns {Promise<object | null>} - El objeto comercio si se encuentra, o null.
+ */
+const getCommerceById = async (commerceId) => {
+    try {
+        const netInfoState = await NetInfo.fetch();
+        const isConnected = netInfoState.isConnected;
+
+        if (!supabase) {
+            console.error("ERROR CRÍTICO: 'supabase' es undefined en getCommerceById. Verifique su inicialización.");
+            return await getLocalCommerceById(commerceId);
+        }
+
+        if (isConnected) {
+            console.log(`[dataService] Intentando obtener comercio con ID: ${commerceId} de Supabase.`);
+            const { data, error } = await supabase
+                .from('commerces')
+                .select('*')
+                .eq('id', commerceId) // Filtrado por ID
+                .single(); // Esperamos un solo resultado
+
+            if (error) {
+                if (error.code === 'PGRST116') { // Código para "no rows found"
+                    console.warn(`Comercio con ID ${commerceId} NO ENCONTRADO en Supabase. Intentando en caché local.`);
+                } else {
+                    console.error(`Error al obtener comercio con ID ${commerceId} de Supabase:`, error.message);
+                }
+                return await getLocalCommerceById(commerceId);
+            }
+
+            if (data) {
+                console.log(`[dataService] Comercio con ID ${commerceId} obtenido de Supabase.`);
+                const commerceToCache = {
+                    id: data.id, // Supabase ID como ID local
+                    supabaseId: data.id,
+                    name: data.name,
+                    address: data.address,
+                    phone: data.phone,
+                    category: data.category,
+                    createdAt: data.createdAt,
+                    sincronizado: true,
+                    route_id: data.route_id,
+                };
+                await upsertLocalCommerce(commerceToCache);
+                return commerceToCache;
+            } else {
+                console.warn(`Comercio con ID ${commerceId} no se encontró en Supabase. Intentando en caché local.`);
+                return await getLocalCommerceById(commerceId);
+            }
+
+        } else {
+            console.log(`[dataService] No hay conexión. Cargando comercio con ID ${commerceId} desde el caché local.`);
+            return await getLocalCommerceById(commerceId);
+        }
+    } catch (error) {
+        console.error('Error en getCommerceById:', error);
+        return await getLocalCommerceById(commerceId);
+    }
+};
 
 /**
  * Obtiene comercios de Supabase filtrados por route_id y los cachea localmente.
@@ -316,14 +544,13 @@ export const saveVisitLocally = async (visitData, isConnected, isAuthenticated) 
  * @param {string} routeId - El ID de la ruta para filtrar los comercios.
  * @returns {Promise<Array<object>>} - Un array de objetos de comercio.
  */
-export const getCommercesByRoute = async (routeId) => {
+const getCommercesByRoute = async (routeId) => {
     try {
         const netInfoState = await NetInfo.fetch();
         const isConnected = netInfoState.isConnected;
 
         if (!supabase) {
             console.error("ERROR CRÍTICO: 'supabase' es undefined en getCommercesByRoute. Verifique su inicialización.");
-            // Si Supabase no está inicializado, solo podemos devolver los comercios locales.
             return await getLocalCommercesForRoute(routeId);
         }
 
@@ -336,14 +563,12 @@ export const getCommercesByRoute = async (routeId) => {
 
             if (error) {
                 console.error(`Error al obtener comercios de Supabase para la ruta ${routeId}:`, error.message);
-                // Si falla la consulta a Supabase, intentamos cargar desde el caché local.
                 return await getLocalCommercesForRoute(routeId);
             }
 
             console.log(`[dataService] ${data.length} comercios obtenidos de Supabase para la ruta ${routeId}.`);
-            // Actualizar el caché local con los comercios de Supabase
-            let localCommerces = await getLocalCommerces();
 
+            // Mapear comercios de Supabase a formato local y marcarlos como sincronizados
             const syncedCommercesFromSupabase = data.map(commerce => ({
                 id: commerce.id, // Supabase ID como ID local
                 supabaseId: commerce.id,
@@ -353,150 +578,121 @@ export const getCommercesByRoute = async (routeId) => {
                 category: commerce.category,
                 createdAt: commerce.createdAt,
                 sincronizado: true,
-                route_id: commerce.route_id, // Asegura que el route_id venga de Supabase
+                route_id: commerce.route_id,
             }));
 
-            const combinedCommerces = {};
+            let localCommerces = await getLocalCommerces();
+            const combinedCommercesMap = new Map();
 
-            // Añadir comercios de Supabase al mapa
-            syncedCommercesFromSupabase.forEach(c => {
-                combinedCommerces[c.id] = c;
-            });
+            // Primero añadir todos los comercios sincronizados de Supabase
+            syncedCommercesFromSupabase.forEach(c => combinedCommercesMap.set(c.id, c));
 
-            // Añadir o actualizar comercios locales no sincronizados que pertenecen a esta ruta
+            // Luego añadir o actualizar comercios locales.
+            // Si un comercio local tiene el mismo supabaseId que uno ya traído, se sobreescribe.
+            // Si es un comercio local no sincronizado (`local-commerce-`), se añade si pertenece a la ruta.
             localCommerces.forEach(c => {
-                // Si el comercio es local-commerce- y pertenece a la ruta del promotor
-                // Y si no existe ya una versión sincronizada de este comercio en combinedCommerces
-                if (!c.sincronizado && c.id.startsWith('local-commerce-') && c.route_id === routeId) {
-                    combinedCommerces[c.id] = c; // Mantiene el comercio local no sincronizado
+                if (c.sincronizado && c.supabaseId) {
+                    // Si ya está sincronizado, la versión de Supabase ya lo gestionó.
+                    // Pero si por alguna razón la versión local tiene datos más frescos, podríamos fusionarlos.
+                    // Por simplicidad, la versión de Supabase prevalece si ya se añadió.
+                    if (!combinedCommercesMap.has(c.supabaseId)) {
+                        combinedCommercesMap.set(c.supabaseId, c);
+                    }
+                } else if (!c.sincronizado && c.id.startsWith('local-commerce-') && c.route_id === routeId) {
+                    // Solo añadir comercios locales no sincronizados de esta ruta si no hay un equivalente de Supabase
+                    // Esto es crucial para que los nuevos comercios se muestren antes de sincronizar
+                    if (![...combinedCommercesMap.values()].some(sc => sc.name === c.name && sc.address === c.address && sc.route_id === c.route_id)) {
+                        combinedCommercesMap.set(c.id, c);
+                    }
                 }
             });
-            
-            const finalCommercesToCache = Object.values(combinedCommerces);
+
+            const finalCommercesToCache = Array.from(combinedCommercesMap.values());
             await AsyncStorage.setItem(LOCAL_STORAGE_KEY_COMMERCES, JSON.stringify(finalCommercesToCache));
-            
-            return finalCommercesToCache;
+
+            // Filtrar los comercios finales por la ruta solicitada antes de devolverlos
+            // Esto asegura que solo se devuelvan los comercios relevantes para la ruta
+            return finalCommercesToCache.filter(c => c.route_id === routeId);
 
         } else {
             console.log(`[dataService] No hay conexión. Cargando comercios de la ruta ${routeId} desde el caché local.`);
-            // Si no hay conexión, simplemente carga los comercios relevantes del AsyncStorage
             return await getLocalCommercesForRoute(routeId);
         }
     } catch (error) {
         console.error('Error en getCommercesByRoute:', error);
-        // En caso de cualquier error, intenta cargar del caché local como fallback
         return await getLocalCommercesForRoute(routeId);
     }
 };
 
 /**
- * Obtiene comercios del AsyncStorage que pertenecen a una ruta específica.
- * @param {string} routeId - El ID de la ruta.
- * @returns {Promise<Array<object>>} - Un array de objetos de comercio.
+ * Obtiene los productos de la competencia desde Supabase.
+ * @returns {Promise<Array<object>>} - Un array de objetos de productos de competencia.
  */
-const getLocalCommercesForRoute = async (routeId) => {
+const getCompetitorProducts = async () => {
     try {
-        const allLocalCommerces = await getLocalCommerces();
-        // Filtra los comercios locales para incluir solo los de la ruta especificada
-        return allLocalCommerces.filter(commerce => commerce.route_id === routeId);
-    } catch (error) {
-        console.error('Error al obtener comercios locales por ruta:', error);
-        return [];
-    }
-};
+        if (!supabase) {
+            console.error("ERROR CRÍTICO: 'supabase' es undefined en getCompetitorProducts. Verifique su inicialización.");
+            return [];
+        }
+        console.log("dataService: Obteniendo productos de competencia de Supabase...");
+        const { data, error } = await supabase
+            .from('competitor_products') // <-- ASEGÚRATE DE QUE ESTE ES EL NOMBRE CORRECTO DE TU TABLA EN SUPABASE
+            .select('*');
 
-// --- RESTO DEL CÓDIGO ---
+        if (error) {
+            console.error("Error al obtener productos de competencia de Supabase:", error);
+            throw error;
+        }
 
-/**
- * Obtiene todos los comercios guardados localmente desde AsyncStorage.
- * @returns {Promise<Array<object>>} - Un array de objetos de comercio.
- */
-export const getLocalCommerces = async () => {
-    try {
-        const jsonValue = await AsyncStorage.getItem(LOCAL_STORAGE_KEY_COMMERCES);
-        return jsonValue != null ? JSON.parse(jsonValue) : [];
-    } catch (error) {
-        console.error('Error al obtener comercios locales:', error);
-        return [];
-    }
-};
-
-/**
- * Actualiza un comercio localmente con su ID de Supabase.
- * @param {string} localId - El ID local del comercio a actualizar.
- * @param {string} supabaseId - El ID que Supabase le asignó al comercio.
- */
-export const updateLocalCommerceWithSupabaseId = async (localId, supabaseId) => {
-    try {
-        let currentCommerces = await getLocalCommerces();
-        currentCommerces = currentCommerces.map(commerce =>
-            commerce.id === localId ? { ...commerce, sincronizado: true, supabaseId: supabaseId, id: supabaseId } : commerce // Actualizar 'id' local a 'supabaseId'
-        );
-        await AsyncStorage.setItem(LOCAL_STORAGE_KEY_COMMERCES, JSON.stringify(currentCommerces));
-        console.log(`Comercio local original con ID "${localId}" actualizado con Supabase ID: "${supabaseId}" y marcado como sincronizado.`);
-    } catch (error) {
-        console.error('Error al actualizar comercio local con ID de Supabase:', error);
-    }
-};
-
-
-/**
- * Obtiene todas las visitas guardadas localmente desde AsyncStorage.
- * @returns {Promise<Array<object>>} - Un array de objetos de visita.
- */
-export const getLocalVisits = async () => {
-    try {
-        const jsonValue = await AsyncStorage.getItem(LOCAL_STORAGE_KEY_VISITS);
-        return jsonValue != null ? JSON.parse(jsonValue) : [];
-    } catch (error) {
-        console.error('Error al obtener visitas locales:', error);
-        return [];
+        console.log("Productos de competencia obtenidos:", data);
+        return data;
+    } catch (err) {
+        console.error("Excepción en getCompetitorProducts:", err);
+        // Podrías considerar guardar un caché local de estos productos si no cambian a menudo.
+        throw new Error("No se pudieron cargar los productos de la competencia.");
     }
 };
 
 /**
- * Marca un comercio local como sincronizado en AsyncStorage.
- * (Esta función ahora es menos crítica si se usa `updateLocalCommerceWithSupabaseId`,
- * pero la mantenemos por si la usas en otro lado sin actualizar el ID).
- * @param {string} localId - El ID local del comercio a actualizar.
-*/
-export const markCommerceAsSynced = async (localId) => {
-    try {
-        let currentCommerces = await getLocalCommerces();
-        currentCommerces = currentCommerces.map(commerce =>
-            commerce.id === localId ? { ...commerce, sincronizado: true } : commerce
-        );
-        await AsyncStorage.setItem(LOCAL_STORAGE_KEY_COMMERCES, JSON.stringify(currentCommerces));
-        console.log(`Comercio con ID ${localId} marcado como sincronizado.`);
-    } catch (error) {
-        console.error('Error al marcar comercio como sincronizado:', error);
-    }
-};
-
-/**
- * Marca una visita local como sincronizada en AsyncStorage.
- * @param {string} localId - El ID local de la visita a actualizar.
+ * Obtiene los productos del promotor (tus propios productos) desde Supabase.
+ * @returns {Promise<Array<object>>} - Un array de objetos de productos del promotor.
  */
-export const markVisitAsSynced = async (localId) => {
+const getPromoterProducts = async () => {
     try {
-        let currentVisits = await getLocalVisits();
-        currentVisits = currentVisits.map(visit =>
-            visit.id === localId ? { ...visit, sincronizado: true } : visit
-        );
-        await AsyncStorage.setItem(LOCAL_STORAGE_KEY_VISITS, JSON.stringify(currentVisits));
-        console.log(`Visita con ID ${localId} marcada como sincronizada.`);
-    } catch (error) {
-        console.error('Error al marcar visita como sincronizada:', error);
+        if (!supabase) {
+            console.error("ERROR CRÍTICO: 'supabase' es undefined en getPromoterProducts. Verifique su inicialización.");
+            return [];
+        }
+        console.log("dataService: Obteniendo productos del promotor de Supabase...");
+        const { data, error } = await supabase
+            .from('products') // <-- ASEGÚRATE DE QUE ESTE ES EL NOMBRE CORRECTO DE TU TABLA DE PRODUCTOS
+            .select('*');
+
+        if (error) {
+            console.error("Error al obtener productos del promotor de Supabase:", error);
+            throw error;
+        }
+
+        console.log("Productos del promotor obtenidos:", data);
+        return data;
+    } catch (err) {
+        console.error("Excepción en getPromoterProducts:", err);
+        throw new Error("No se pudieron cargar los productos del promotor.");
     }
 };
 
 /**
  * Sincroniza comercios pendientes con Supabase.
  */
-export const syncPendingCommerces = async () => {
+const syncPendingCommerces = async () => {
     const netInfoState = await NetInfo.fetch();
     if (!netInfoState.isConnected) {
         console.log('No hay conexión a internet. Sincronización de comercios pospuesta.');
+        return;
+    }
+
+    if (!supabase) {
+        console.error("ERROR CRÍTICO: 'supabase' es undefined en syncPendingCommerces. No se puede sincronizar.");
         return;
     }
 
@@ -517,10 +713,15 @@ export const syncPendingCommerces = async () => {
 /**
  * Sincroniza las visitas pendientes con Supabase.
  */
-export const syncPendingVisits = async () => {
+const syncPendingVisits = async () => {
     const netInfoState = await NetInfo.fetch();
     if (!netInfoState.isConnected) {
         console.log('No hay conexión a internet. Sincronización de visitas pospuesta.');
+        return;
+    }
+
+    if (!supabase) {
+        console.error("ERROR CRÍTICO: 'supabase' es undefined en syncPendingVisits. No se puede sincronizar.");
         return;
     }
 
@@ -532,7 +733,7 @@ export const syncPendingVisits = async () => {
         return;
     }
 
-    const localCommerces = await getLocalCommerces();
+    const localCommerces = await getLocalCommerces(); // Necesario para mapear commerceId si es local
 
     for (const visit of visitsToSync) {
         await syncSingleVisit(visit, localCommerces);
@@ -540,12 +741,34 @@ export const syncPendingVisits = async () => {
     console.log('Sincronización masiva de visitas completada.');
 };
 
-// Función para limpiar AsyncStorage COMPLETAMENTE (usar con precaución en producción)
-export const clearAllLocalData = async () => {
+/**
+ * Función para limpiar AsyncStorage COMPLETAMENTE (usar con precaución en producción)
+ */
+const clearAllLocalData = async () => {
     try {
         await AsyncStorage.clear();
         console.log('Todos los datos de AsyncStorage han sido borrados.');
     } catch (error) {
         console.error('Error al borrar todos los datos de AsyncStorage:', error);
     }
+};
+
+// --- Exportación de todas las funciones como un objeto de servicio ---
+export const dataService = {
+    saveCommerceLocally,
+    saveVisitLocally,
+    getCommerceById,
+    getCommercesByRoute,
+    getLocalCommerces,
+    getLocalVisits,
+    updateLocalCommerceWithSupabaseId,
+    markVisitAsSynced, // Mantengo esta por si se usa, aunque updateLocalCommerceWithSupabaseId ya hace la marcación para comercios
+    syncPendingCommerces,
+    syncPendingVisits,
+    clearAllLocalData,
+    getCompetitorProducts, // Nueva función para productos de competencia
+    getPromoterProducts, // Función para tus propios productos
+    // Opcional: podrías exportar las funciones individuales de sincronización si las necesitas directamente
+    // syncSingleCommerce,
+    // syncSingleVisit,
 };
